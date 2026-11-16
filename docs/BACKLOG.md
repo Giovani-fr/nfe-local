@@ -30,7 +30,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Implementar `models/fiscal.py`: `DocumentoFiscal`, `Parte`, `Item`, `ImpostoItem`, `ImpostoTotal`, `Totais`, `Pagamento`, `AlertaValidacao` e `ResultadoAnalise`.
   - Testes unitários de serialização, validação de tipos e normalização de valores.
 
-- [ ] **4. Parser seguro (`lxml` anti-XXE) de NF-e (55) e NFC-e (65), com testes (`parsers/nfe.py`)**
+- [x] **4. Parser seguro (`lxml` anti-XXE) de NF-e (55) e NFC-e (65), com testes (`parsers/nfe.py`)**
   - Implementar `parsers/xml_seguro.py` com `lxml.etree.XMLParser(resolve_entities=False, no_network=True, dtd_validation=False, load_dtd=False)` e helpers agnósticos de namespace.
   - Implementar `parsers/nfe.py` suportando `nfeProc` (com protocolo), `NFe` (sem protocolo), `resNFe` (resumo) e `procEventoNFe`/`evento`, extraindo itens, impostos (`ICMS`, `IPI`, `PIS`, `COFINS`), totais, duplicatas e pagamentos (`detPag`).
   - Proteger contra `<infNFe>` aninhado dentro de CT-e (exigir filho `<ide>`).
