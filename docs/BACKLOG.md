@@ -25,7 +25,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - `xml_malformado.xml` e `xml_xxe_attack.xml` (tentativa de leitura de entidade externa `<!ENTITY xxe SYSTEM "file:///...">`).
   - Testes garantindo que todas as fixtures existem e que nenhuma contém CNPJ/chave real.
 
-- [ ] **3. Modelos Pydantic v2 e normalização segura de valores (`models/`)**
+- [x] **3. Modelos Pydantic v2 e normalização segura de valores (`models/`)**
   - Implementar `models/normalizadores.py`: conversão segura para `Decimal`, parsing de datas ISO (`dhEmi`, `dEmi`, `dCompet`), limpeza de CNPJ/CPF e Chave de Acesso preservando caracteres alfanuméricos `[0-9A-Z]`.
   - Implementar `models/fiscal.py`: `DocumentoFiscal`, `Parte`, `Item`, `ImpostoItem`, `ImpostoTotal`, `Totais`, `Pagamento`, `AlertaValidacao` e `ResultadoAnalise`.
   - Testes unitários de serialização, validação de tipos e normalização de valores.
