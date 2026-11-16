@@ -1,0 +1,49 @@
+# Ambientes virtuais Python
+.venv/
+venv/
+ENV/
+env/
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+senha.txt
+
+# Certificados digitais e chaves criptográficas (NUNCA versionar)
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+
+# Banco de dados local, dados sensíveis e exportações
+data/
+*.db
+*.sqlite
+*.sqlite3
+saidas/
+
+# Logs e diagnóstico
+instalar.log
+*.log
+
+# Cache e artefatos de build/testes Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Sistema operacional e IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
