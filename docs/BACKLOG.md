@@ -81,7 +81,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - **DANFE** (NF-e/NFC-e) com código de barras **Code 128** em SVG puro (`reports/danfe_svg.py`).
     - **DANFSe** (NFS-e Padrão Nacional conforme NT 008/2026).
 
-- [ ] **11. `Dockerfile`, scripts Windows (`instalar.bat`/`iniciar.bat`), Benchmark de 1.000 XMLs e `README.md` / `README.en.md`**
+- [x] **11. `Dockerfile`, scripts Windows (`instalar.bat`/`iniciar.bat`), Benchmark de 1.000 XMLs e `README.md` / `README.en.md`**
   - Criar `Dockerfile` enxuto e seguro (usuário não-root) e `.dockerignore`.
   - Criar `instalar.bat` e `iniciar.bat` seguindo o padrão amigável do `transcritor-local`.
   - Criar script de benchmark (`scripts/benchmark_lote.py`) que gera 1.000 XMLs sintéticos em memória/temp, mede tempo total, throughput (notas/s) e pico de memória (`tracemalloc`), e documentar em `docs/benchmark.md`.
