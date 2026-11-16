@@ -12,7 +12,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Criar workflow `.github/workflows/ci.yml` rodando `ruff check`, `ruff format --check` e `pytest`.
   - Criar um teste inicial de fumaça (`tests/test_smoke.py`) garantindo que o ambiente e o pacote importam perfeitamente.
 
-- [ ] **2. Fixtures: XMLs fictícios de NF-e (55), NFC-e (65) e NFS-e Nacional (válidos e com defeitos propositais)**
+- [x] **2. Fixtures: XMLs fictícios de NF-e (55), NFC-e (65) e NFS-e Nacional (válidos e com defeitos propositais)**
   - Criar gerador determinístico e arquivos XML em `tests/fixtures/` 100% fictícios (zero dados reais):
     - `nfe_55_valida.xml` (com protocolo `nfeProc`, múltiplos itens, ICMS, IPI, PIS, COFINS, frete, desconto e duplicatas).
     - `nfe_55_sem_protocolo.xml` (apenas `<NFe>` sem `<protNFe>`).

@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
+  <infNFSe Id="NFS35503082233444555000181000000000050126030000001005" versao="1.00">
+    <xLocEmi>SAO PAULO</xLocEmi>
+    <xLocPrestacao>SAO PAULO</xLocPrestacao>
+    <nNFSe>501</nNFSe>
+    <cLocIncid>3550308</cLocIncid>
+    <xLocIncid>SAO PAULO</xLocIncid>
+    <xTribNac>Desenvolvimento de programas de computador sob encomenda</xTribNac>
+    <verAplic>ADN_NFSE_1.00</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <procEmi>1</procEmi>
+    <cStat>100</cStat>
+    <dhProc>2026-03-16T10:15:00-03:00</dhProc>
+    <nDFSe>9000501</nDFSe>
+    <emit>
+      <CNPJ>33444555000181</CNPJ>
+      <IM>99887766</IM>
+      <xNome>SERVICOS TECNOLOGIA GAMA SA</xNome>
+      <xFant>GAMA TECH</xFant>
+      <enderNac>
+        <xLgr>AVENIDA PAULISTA FICTICIA</xLgr>
+        <nro>1500</nro>
+        <xCpl>CONJ 101</xCpl>
+        <xBairro>BELA VISTA</xBairro>
+        <cMun>3550308</cMun>
+        <UF>SP</UF>
+        <CEP>01310100</CEP>
+      </enderNac>
+      <fone>1135003000</fone>
+      <email>faturamento@gamatech.exemplo.br</email>
+    </emit>
+    <valores>
+      <vBC>2000.00</vBC>
+      <pAliqAplic>5.00</pAliqAplic>
+      <vISSQN>100.00</vISSQN>
+      <vTotalRet>123.00</vTotalRet>
+      <vLiq>1877.00</vLiq>
+    </valores>
+    <IBSCBS>
+      <totCIBS>
+        <gIBS>
+          <vIBSTot>20.00</vIBSTot>
+        </gIBS>
+        <gCBS>
+          <vCBS>18.00</vCBS>
+        </gCBS>
+        <vTotNF>2000.00</vTotNF>
+      </totCIBS>
+    </IBSCBS>
+    <DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
+      <infDPS Id="DPS355030823344455500018100001000000000000501">
+        <tpAmb>1</tpAmb>
+        <dhEmi>2026-03-16T10:14:30-03:00</dhEmi>
+        <verAplic>EMISSOR_PROPRIO_1.0</verAplic>
+        <serie>1</serie>
+        <nDPS>501</nDPS>
+        <dCompet>2026-03-16</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3550308</cLocEmi>
+        <prest>
+          <CNPJ>33444555000181</CNPJ>
+          <IM>99887766</IM>
+          <xNome>SERVICOS TECNOLOGIA GAMA SA</xNome>
+          <regTrib>
+            <opSimpNac>1</opSimpNac>
+            <regEspTrib>0</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>11222333000181</CNPJ>
+          <IM>11223344</IM>
+          <xNome>INDUSTRIA ALFA METALURGICA LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01001000</CEP>
+            </endNac>
+            <xLgr>AVENIDA DAS INDUSTRIAS FICTICIAS</xLgr>
+            <nro>1000</nro>
+            <xBairro>DISTRITO INDUSTRIAL</xBairro>
+          </end>
+          <fone>1130001000</fone>
+          <email>compras@alfametal.exemplo.br</email>
+        </toma>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3550308</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>010101</cTribNac>
+            <cNBS>115021000</cNBS>
+            <xDescServ>SERVICOS DE DESENVOLVIMENTO E MANUTENCAO DE SOFTWARE INDUSTRIAL</xDescServ>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vReceb>2000.00</vReceb>
+            <vServ>2000.00</vServ>
+          </vServPrest>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <tpRetISSQN>1</tpRetISSQN>
+              <pAliq>5.00</pAliq>
+              <vISSQN>100.00</vISSQN>
+            </tribMun>
+            <tribFed>
+              <piscofins>
+                <CST>01</CST>
+                <vBCPisCofins>2000.00</vBCPisCofins>
+                <pAliqPis>0.65</pAliqPis>
+                <pAliqCofins>3.00</pAliqCofins>
+                <vPis>13.00</vPis>
+                <vCofins>60.00</vCofins>
+                <tpRetPisCofins>1</tpRetPisCofins>
+              </piscofins>
+              <vRetCP>0.00</vRetCP>
+              <vRetIRRF>30.00</vRetIRRF>
+              <vRetCSLL>20.00</vRetCSLL>
+            </tribFed>
+            <totTrib>
+              <vTotTrib>
+                <vTotTribFed>123.00</vTotTribFed>
+                <vTotTribEst>0.00</vTotTribEst>
+                <vTotTribMun>100.00</vTotTribMun>
+              </vTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>

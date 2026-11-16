@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">
+  <evento versao="1.00">
+    <infEvento Id="ID1101113526031122233300018155001000001001110001001001">
+      <cOrgao>35</cOrgao>
+      <tpAmb>1</tpAmb>
+      <CNPJ>11222333000181</CNPJ>
+      <chNFe>35260311222333000181550010000010011100010010</chNFe>
+      <dhEvento>2026-03-10T16:00:00-03:00</dhEvento>
+      <tpEvento>110111</tpEvento>
+      <nSeqEvento>1</nSeqEvento>
+      <verEvento>1.00</verEvento>
+      <detEvento versao="1.00">
+        <descEvento>Cancelamento</descEvento>
+        <nProt>135260000001001</nProt>
+        <xJust>ERRO NO PREENCHIMENTO DE DADOS COMERCIAIS FICTICIOS</xJust>
+      </detEvento>
+    </infEvento>
+  </evento>
+  <retEvento versao="1.00">
+    <infEvento>
+      <tpAmb>1</tpAmb>
+      <verAplic>SP_EVENTOS_PL_100</verAplic>
+      <cOrgao>35</cOrgao>
+      <cStat>135</cStat>
+      <xMotivo>Evento registrado e vinculado a NF-e</xMotivo>
+      <chNFe>35260311222333000181550010000010011100010010</chNFe>
+      <tpEvento>110111</tpEvento>
+      <xEvento>Cancelamento registrado</xEvento>
+      <nSeqEvento>1</nSeqEvento>
+      <dhRegEvento>2026-03-10T16:00:03-03:00</dhRegEvento>
+      <nProt>135260000099001</nProt>
+    </infEvento>
+  </retEvento>
+</procEventoNFe>

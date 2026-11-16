@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ConsultarNfseResposta xmlns="http://www.abrasf.org.br/nfse.xsd">
+  <ListaNfse>
+    <CompNfse>
+      <Nfse versao="2.04">
+        <InfNfse Id="NFSE_LEGADA_100">
+          <Numero>100</Numero>
+          <CodigoVerificacao>ABCD-1234</CodigoVerificacao>
+          <DataEmissao>2026-03-10T10:00:00</DataEmissao>
+          <Servico>
+            <Valores>
+              <ValorServicos>500.00</ValorServicos>
+              <ValorIss>25.00</ValorIss>
+              <Aliquota>5.00</Aliquota>
+              <ValorLiquidoNfse>475.00</ValorLiquidoNfse>
+            </Valores>
+            <ItemListaServico>01.01</ItemListaServico>
+            <Discriminacao>SERVICO NO LAYOUT MUNICIPAL ABRASF LEGADO</Discriminacao>
+            <CodigoMunicipio>3550308</CodigoMunicipio>
+          </Servico>
+          <PrestadorServico>
+            <IdentificacaoPrestador>
+              <CpfCnpj>
+                <Cnpj>33444555000181</Cnpj>
+              </CpfCnpj>
+              <InscricaoMunicipal>99887766</InscricaoMunicipal>
+            </IdentificacaoPrestador>
+            <RazaoSocial>SERVICOS TECNOLOGIA GAMA SA</RazaoSocial>
+          </PrestadorServico>
+          <TomadorServico>
+            <IdentificacaoTomador>
+              <CpfCnpj>
+                <Cnpj>11222333000181</Cnpj>
+              </CpfCnpj>
+            </IdentificacaoTomador>
+            <RazaoSocial>INDUSTRIA ALFA METALURGICA LTDA</RazaoSocial>
+          </TomadorServico>
+        </InfNfse>
+      </Nfse>
+    </CompNfse>
+  </ListaNfse>
+</ConsultarNfseResposta>
