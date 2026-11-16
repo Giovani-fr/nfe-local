@@ -36,7 +36,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Proteger contra `<infNFe>` aninhado dentro de CT-e (exigir filho `<ide>`).
   - Testes cobrindo namespaces variados, notas com/sem protocolo, NFC-e, bloqueio de ataque XXE e XML malformado.
 
-- [ ] **5. Motor de Validadores, um teste por regra (`validators/`)**
+- [x] **5. Motor de Validadores, um teste por regra (`validators/`)**
   - Regra 1: Chave de acesso com 44 caracteres (numéricos ou alfanuméricos) e dígito verificador Módulo 11 válido (`ord(c) - 48`).
   - Regra 2: CPF (11 dígitos) e CNPJ (14 caracteres `[0-9A-Z]` conforme NT 2014.002 v1.40) válidos para emitente e destinatário.
   - Regra 3: Batimento financeiro ($\sum \text{itens} == \text{vProd}$ e consistência da equação do `vNF`).
