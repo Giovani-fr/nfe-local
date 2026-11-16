@@ -64,7 +64,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - Aba 3: `Resumo` (totais por emitente, por imposto e por período).
     - Aba 4: `Alertas` (todos os erros e avisos apontados pelos validadores).
 
-- [ ] **9. API REST FastAPI e CLI (`api/` e entrypoint CLI)**
+- [x] **9. API REST FastAPI e CLI (`api/` e entrypoint CLI)**
   - Criar endpoints FastAPI:
     - `POST /api/lote`: upload de 1 ou vários arquivos `.xml` e/ou `.zip` (com proteção contra zip bomb e extensões inválidas), retornando o `ResumoLote` e a lista de `ResultadoAnalise`.
     - `GET /api/lote/{lote_id}` e `GET /api/lote/{lote_id}/nota/{chave}`: detalhe completo da nota.
