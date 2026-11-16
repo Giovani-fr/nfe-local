@@ -44,7 +44,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Regra 5: Alerta explícito para nota emitida em ambiente de homologação (`ambiente == 2`) e nota sem protocolo de autorização.
   - Regra 6: XML malformado ou layout desconhecido reportado como `erro_fatal` claro em `ResultadoAnalise`, sem derrubar o processamento do lote.
 
-- [ ] **6. Parser de NFS-e do Padrão Nacional e Detector Automático de Documento (`parsers/nfse_nacional.py` e `parsers/detector.py`)**
+- [x] **6. Parser de NFS-e do Padrão Nacional e Detector Automático de Documento (`parsers/nfse_nacional.py` e `parsers/detector.py`)**
   - Implementar `parsers/nfse_nacional.py` lendo `infNFSe` e `infDPS` (chave de 50 dígitos, prestador, tomador, serviço `cTribNac`, `vServ`, `vLiq`, `vISSQN`, retenções federais `IRRF`/`CSLL`/`CP`/`PIS`/`COFINS` e bloco `IBSCBS`), convertendo para `DocumentoFiscal`.
   - Implementar `parsers/detector.py`: recebe `bytes` (ou caminho/stream de XML ou `.zip`), detecta automaticamente NF-e (55), NFC-e (65), NFS-e Nacional, Resumo ou Evento, faz o parse e passa pelos validadores.
   - Rejeitar com mensagem clara layouts municipais legados (ex.: ABRASF) informando que apenas o Padrão Nacional da NFS-e é suportado.
