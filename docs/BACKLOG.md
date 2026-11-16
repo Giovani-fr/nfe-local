@@ -57,7 +57,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - Por período (agrupamento diário e mensal `YYYY-MM`).
     - Contagem de notas válidas, com avisos, com erros e rejeitadas/ilegíveis.
 
-- [ ] **8. Exportação em CSV e XLSX (`reports/exportacao.py`)**
+- [x] **8. Exportação em CSV e XLSX (`reports/exportacao.py`)**
   - Exportar o lote processado em CSV (UTF-8 com BOM para abrir direto no Excel em pt-BR) e em XLSX (`openpyxl`) com abas organizadas:
     - Aba 1: `Notas` (cabeçalho, emitente, destinatário, totais, status de validação).
     - Aba 2: `Itens` (chave da nota, número do item, código, descrição, NCM, CFOP, qtd, valores e impostos do item).
