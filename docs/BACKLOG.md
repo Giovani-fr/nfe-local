@@ -72,7 +72,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Adicionar subcomandos na CLI (`nfe-local analisar <arquivos_ou_pasta> --json --exportar-xlsx <saida.xlsx>`) para uso direto no terminal ou por agentes de IA.
   - Testes de integração com `TestClient` do FastAPI e da CLI.
 
-- [ ] **10. Interface Web: Upload, Lista, Resumo, DANFE e DANFSe (`web/` e `reports/danfe_svg.py`)**
+- [x] **10. Interface Web: Upload, Lista, Resumo, DANFE e DANFSe (`web/` e `reports/danfe_svg.py`)**
   - Criar interface web limpa e responsiva (HTML/CSS/JS puros servidos pelo FastAPI, com suporte a Dark Mode):
     - Área de drag-and-drop para múltiplos XMLs e arquivos `.zip`.
     - Cards de resumo do lote (totais por emitente, imposto e período) e botões de exportação CSV/XLSX.

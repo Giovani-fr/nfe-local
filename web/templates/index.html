@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nfe-local — Visualizador, Validador e Analisador Fiscal Local</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <span class="brand-badge">NF-e / NFC-e / NFS-e</span>
+        <div>
+          <h1>nfe-local <span class="version-pill">v{{ version }}</span></h1>
+          <p class="subtitle">Validador fiscal, batimento financeiro em lote e gerador DANFE / DANFSe 100% local</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="btn-demo" type="button" class="btn btn-secondary">
+          Carregar Lote de Demonstração
+        </button>
+        <button id="btn-theme" type="button" class="btn btn-ghost" title="Alternar tema Claro/Escuro">
+          Alternar Tema
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <!-- Área de Upload Drag-and-Drop -->
+    <section class="upload-section card">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Arraste arquivos XML ou ZIP aqui ou clique para selecionar">
+        <input id="file-input" type="file" multiple accept=".xml,.zip" hidden />
+        <div class="dropzone-icon">📄</div>
+        <h2>Arraste e solte arquivos <code>.xml</code> ou pacotes <code>.zip</code> aqui</h2>
+        <p>Processamento 100% offline com proteção anti-XXE, validação de CNPJ alfanumérico (NT 2014.002) e batimento de impostos.</p>
+        <div class="dropzone-buttons">
+          <button id="btn-select-files" type="button" class="btn btn-primary">
+            Selecionar Arquivos XML / ZIP
+          </button>
+          <button id="btn-demo-inline" type="button" class="btn btn-secondary">
+            Carregar Lote de Demonstração
+          </button>
+        </div>
+        <div id="upload-status" class="upload-status" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- Painel de Resultados do Lote (oculto até processar um lote) -->
+    <div id="painel-lote" class="hidden">
+      <!-- Barra de Ações e Exportação do Lote -->
+      <section class="lote-toolbar card">
+        <div class="lote-meta">
+          <h2>Resumo Executivo do Lote <code id="lbl-lote-id"></code></h2>
+          <span id="lbl-criado-em" class="muted"></span>
+        </div>
+        <div class="export-buttons">
+          <a id="link-export-xlsx" class="btn btn-primary" href="#" download>
+            ⬇ Baixar XLSX Completo (4 Abas)
+          </a>
+          <a id="link-export-csv" class="btn btn-secondary" href="#" download>
+            ⬇ CSV (Notas)
+          </a>
+          <a id="link-export-itens-csv" class="btn btn-secondary" href="#" download>
+            ⬇ CSV (Itens)
+          </a>
+        </div>
+      </section>
+
+      <!-- Cards de Indicadores do Lote -->
+      <section class="kpi-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Total de Documentos</span>
+          <strong id="kpi-total-arquivos" class="kpi-value">0</strong>
+          <span id="kpi-por-tipo" class="kpi-sub"></span>
+        </div>
+        <div class="card kpi-card kpi-ok">
+          <span class="kpi-label">Válidos (Sem Erros)</span>
+          <strong id="kpi-validos" class="kpi-value">0</strong>
+          <span id="kpi-com-avisos" class="kpi-sub">0 com avisos</span>
+        </div>
+        <div class="card kpi-card kpi-danger">
+          <span class="kpi-label">Com Erros Fiscais / XML</span>
+          <strong id="kpi-com-erros" class="kpi-value">0</strong>
+          <span id="kpi-erros-fatais" class="kpi-sub">0 ilegíveis/rejeitados</span>
+        </div>
+        <div class="card kpi-card kpi-accent">
+          <span class="kpi-label">Valor Total das Notas</span>
+          <strong id="kpi-valor-total" class="kpi-value">R$ 0,00</strong>
+          <span id="kpi-valor-liquido" class="kpi-sub">Líquido: R$ 0,00</span>
+        </div>
+      </section>
+
+      <!-- Cards de Impostos Consolidados -->
+      <section class="card taxes-section">
+        <h3>Tributos Consolidados no Lote</h3>
+        <div class="taxes-grid">
+          <div class="tax-item"><span>ICMS</span><strong id="tax-icms">R$ 0,00</strong></div>
+          <div class="tax-item"><span>ICMS-ST</span><strong id="tax-icms-st">R$ 0,00</strong></div>
+          <div class="tax-item"><span>IPI</span><strong id="tax-ipi">R$ 0,00</strong></div>
+          <div class="tax-item"><span>PIS</span><strong id="tax-pis">R$ 0,00</strong></div>
+          <div class="tax-item"><span>COFINS</span><strong id="tax-cofins">R$ 0,00</strong></div>
+          <div class="tax-item"><span>ISSQN (NFS-e)</span><strong id="tax-iss">R$ 0,00</strong></div>
+          <div class="tax-item"><span>Retenções Federais</span><strong id="tax-retencoes">R$ 0,00</strong></div>
+          <div class="tax-item tax-highlight"><span>IBS / CBS (Reforma)</span><strong id="tax-ibs-cbs">R$ 0,00</strong></div>
+        </div>
+      </section>
+
+      <!-- Tabelas de Resumo por Emitente e por Período -->
+      <section class="summary-tables-grid">
+        <div class="card">
+          <h3>Totais por Emitente / Prestador</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>CNPJ / CPF</th>
+                  <th>Razão Social</th>
+                  <th>UF</th>
+                  <th class="num">Qtd</th>
+                  <th class="num">Total Notas (R$)</th>
+                  <th class="num">ICMS + IPI + ISS (R$)</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-emitentes"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Totais por Período (Mês)</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Competência</th>
+                  <th class="num">Qtd</th>
+                  <th class="num">Produtos/Serviços (R$)</th>
+                  <th class="num">Total Notas (R$)</th>
+                  <th class="num">IBS/CBS (R$)</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-periodos"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Lista Filtrável de Notas -->
+      <section class="card notes-section">
+        <div class="notes-header">
+          <h3>Documentos Analisados</h3>
+          <div class="filters-bar">
+            <input
+              id="filtro-busca"
+              type="search"
+              placeholder="Buscar por chave, número, CNPJ, emitente ou arquivo..."
+              class="input-control"
+            />
+            <select id="filtro-tipo" class="input-control">
+              <option value="">Todos os Tipos</option>
+              <option value="NFE">NF-e (55)</option>
+              <option value="NFCE">NFC-e (65)</option>
+              <option value="NFSE">NFS-e Nacional</option>
+              <option value="RESUMO">Resumo (resNFe)</option>
+              <option value="EVENTO">Evento</option>
+              <option value="ERRO_XML">Erro XML / Layout</option>
+            </select>
+            <select id="filtro-status" class="input-control">
+              <option value="">Todos os Status</option>
+              <option value="validos">Somente Válidos</option>
+              <option value="erros">Com Erros</option>
+              <option value="avisos">Com Avisos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Arquivo / Origem</th>
+                <th>Tipo</th>
+                <th>Número / Série</th>
+                <th>Emitente / Prestador</th>
+                <th>Destinatário / Tomador</th>
+                <th class="num">Valor Total (R$)</th>
+                <th>Validação e Alertas</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-notas"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Modal de Detalhes e Alertas da Nota -->
+  <div id="modal-detalhes" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-box card">
+      <div class="modal-header">
+        <h3 id="modal-titulo">Detalhes e Diagnóstico Fiscal</h3>
+        <button id="btn-fechar-modal" type="button" class="btn btn-ghost">✕ Fechar</button>
+      </div>
+      <div id="modal-conteudo" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

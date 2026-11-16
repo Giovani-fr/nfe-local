@@ -1,16 +1,21 @@
-"""Aplicação FastAPI para análise, validação e exportação de lotes fiscais (`api/app.py`)."""
+"""Aplicação FastAPI para análise, interface Web e exportação de lotes fiscais (`api/app.py`)."""
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from api import __version__
@@ -18,6 +23,7 @@ from models.fiscal import ResultadoAnalise
 from models.normalizadores import limpar_chave_acesso
 from parsers.detector import extrair_xmls_de_zip, processar_arquivo_xml
 from parsers.xml_seguro import ErroParseXML
+from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
 from validators.lote import criar_resultado_erro_xml, validar_lote
@@ -25,6 +31,22 @@ from validators.lote import criar_resultado_erro_xml, validar_lote
 MAX_LOTES_MEMORIA = 20
 _EXTENSOES_PERMITIDAS = (".xml", ".zip")
 _ZIP_MAGIC_PREFIX = b"PK\x03\x04"
+
+RAIZ_PROJETO = Path(__file__).resolve().parent.parent
+PASTA_WEB_STATIC = RAIZ_PROJETO / "web" / "static"
+PASTA_WEB_TEMPLATES = RAIZ_PROJETO / "web" / "templates"
+PASTA_FIXTURES_DEMO = RAIZ_PROJETO / "tests" / "fixtures"
+
+_ARQUIVOS_DEMO = (
+    "nfe_55_valida.xml",
+    "nfe_55_cnpj_alfanumerico.xml",
+    "nfce_65_valida.xml",
+    "nfse_nacional_valida.xml",
+    "nfe_55_homologacao.xml",
+    "nfe_55_sem_protocolo.xml",
+    "nfe_55_soma_errada.xml",
+    "nfe_resumo.xml",
+)
 
 
 @dataclass(slots=True)
@@ -197,6 +219,31 @@ def _filtrar_resultados(
     return filtrados
 
 
+def _localizar_nota_no_lote(
+    lote: LoteArmazenado, identificador: str
+) -> tuple[int, ResultadoAnalise]:
+    ident_strip = identificador.strip()
+    if ident_strip.isdigit() and len(ident_strip) < 44:
+        indice = int(ident_strip)
+        if 0 <= indice < len(lote.resultados):
+            return indice, lote.resultados[indice]
+
+    chave_alvo = limpar_chave_acesso(ident_strip)
+    for idx, resultado in enumerate(lote.resultados):
+        doc = resultado.documento
+        if doc is None or not doc.chave_acesso:
+            continue
+        if doc.chave_acesso == ident_strip or (
+            chave_alvo and limpar_chave_acesso(doc.chave_acesso) == chave_alvo
+        ):
+            return idx, resultado
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Nota '{identificador}' não encontrada no lote '{lote.lote_id}'.",
+    )
+
+
 app = FastAPI(
     title="nfe-local",
     description=(
@@ -205,6 +252,19 @@ app = FastAPI(
     ),
     version=__version__,
 )
+
+app.mount("/static", StaticFiles(directory=str(PASTA_WEB_STATIC)), name="static")
+templates = Jinja2Templates(directory=str(PASTA_WEB_TEMPLATES))
+
+
+@app.get("/", response_class=HTMLResponse)
+def pagina_inicial(request: Request) -> HTMLResponse:
+    """Renderiza a interface web principal do `nfe-local`."""
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"version": __version__},
+    )
 
 
 @app.get("/api/health")
@@ -237,6 +297,32 @@ async def criar_lote(
             )
         conteudo = await upload.read()
         entradas.append((nome, conteudo))
+
+    resultados, xmls_brutos = processar_entradas_com_xml_bruto(entradas)
+    lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_brutos)
+
+    return RespostaLote(
+        lote_id=lote.lote_id,
+        criado_em=lote.criado_em,
+        resumo=lote.resumo,
+        resultados=lote.resultados,
+    )
+
+
+@app.post("/api/lote/demo", response_model=RespostaLote)
+def criar_lote_demo() -> RespostaLote:
+    """Carrega um lote de demonstração a partir dos XMLs sintéticos em `tests/fixtures/`."""
+    entradas: list[tuple[str, bytes]] = []
+    for nome_arq in _ARQUIVOS_DEMO:
+        caminho = PASTA_FIXTURES_DEMO / nome_arq
+        if caminho.is_file():
+            entradas.append((nome_arq, caminho.read_bytes()))
+
+    if not entradas:
+        raise HTTPException(
+            status_code=404,
+            detail="Arquivos sintéticos de demonstração não encontrados.",
+        )
 
     resultados, xmls_brutos = processar_entradas_com_xml_bruto(entradas)
     lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_brutos)
@@ -285,26 +371,8 @@ def obter_nota_do_lote(lote_id: str, identificador: str) -> ResultadoAnalise:
     if lote is None:
         raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
 
-    ident_strip = identificador.strip()
-    if ident_strip.isdigit() and len(ident_strip) < 44:
-        indice = int(ident_strip)
-        if 0 <= indice < len(lote.resultados):
-            return lote.resultados[indice]
-
-    chave_alvo = limpar_chave_acesso(ident_strip)
-    for resultado in lote.resultados:
-        doc = resultado.documento
-        if doc is None or not doc.chave_acesso:
-            continue
-        if doc.chave_acesso == ident_strip or (
-            chave_alvo and limpar_chave_acesso(doc.chave_acesso) == chave_alvo
-        ):
-            return resultado
-
-    raise HTTPException(
-        status_code=404,
-        detail=f"Nota '{identificador}' não encontrada no lote '{lote_id}'.",
-    )
+    _, resultado = _localizar_nota_no_lote(lote, identificador)
+    return resultado
 
 
 @app.get("/api/lote/{lote_id}/exportar")
@@ -334,4 +402,69 @@ def exportar_lote(
         content=conteudo,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{nome_arquivo}"'},
+    )
+
+
+@app.get("/lote/{lote_id}/nota/{identificador}/espelho", response_class=HTMLResponse)
+def renderizar_espelho_nota(
+    request: Request,
+    lote_id: str,
+    identificador: str,
+) -> HTMLResponse:
+    """Renderiza o espelho A4 imprimível (DANFE NF-e/NFC-e ou DANFSe NT 008/2026)."""
+    lote = _REPOSITORIO_LOTES.obter(lote_id)
+    if lote is None:
+        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+
+    _, resultado = _localizar_nota_no_lote(lote, identificador)
+    if resultado.documento is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Não é possível gerar espelho DANFE/DANFSe para arquivo com erro fatal "
+                "de XML ou layout desconhecido."
+            ),
+        )
+
+    if resultado.documento.tipo == "NFSE":
+        contexto = montar_contexto_danfse(resultado)
+        nome_template = "danfse.html"
+    else:
+        contexto = montar_contexto_danfe(resultado)
+        nome_template = "danfe.html"
+
+    contexto["lote_id"] = lote_id
+    contexto["identificador"] = identificador
+    return templates.TemplateResponse(request, nome_template, contexto)
+
+
+@app.get("/lote/{lote_id}/nota/{identificador}/xml")
+def baixar_xml_nota(lote_id: str, identificador: str) -> Response:
+    """Retorna os bytes brutos do XML original da nota selecionada."""
+    lote = _REPOSITORIO_LOTES.obter(lote_id)
+    if lote is None:
+        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+
+    indice, resultado = _localizar_nota_no_lote(lote, identificador)
+    xml_bytes = (
+        lote.xmls_brutos.get(identificador.strip())
+        or lote.xmls_brutos.get(limpar_chave_acesso(identificador))
+        or lote.xmls_brutos.get(str(indice))
+    )
+    if not xml_bytes:
+        raise HTTPException(
+            status_code=404,
+            detail="Conteúdo bruto do XML não disponível para este item.",
+        )
+
+    doc = resultado.documento
+    base_nome = doc.chave_acesso if (doc and doc.chave_acesso) else resultado.arquivo_origem
+    nome_seguro = re.sub(r"[^0-9A-Za-z._-]", "_", base_nome)
+    if not nome_seguro.lower().endswith(".xml"):
+        nome_seguro = f"{nome_seguro}.xml"
+
+    return Response(
+        content=xml_bytes,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{nome_seguro}"'},
     )

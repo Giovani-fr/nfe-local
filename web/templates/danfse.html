@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DANFSe — NFS-e {{ numero_fmt }} ({{ prestador.razao_social }})</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9pt;
+      color: #000;
+      background-color: #334155;
+      padding: 16px;
+    }
+    .tela-only {
+      max-width: 210mm;
+      margin: 0 auto 12px auto;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 12px 16px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toolbar-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .btn-acao {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 9pt;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn-acao.sec {
+      background: #475569;
+    }
+    .banner-alerta {
+      background: #7f1d1d;
+      color: #fecaca;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 8.5pt;
+    }
+    .folha-a4 {
+      position: relative;
+      width: 210mm;
+      min-height: 275mm;
+      margin: 0 auto;
+      background: #fff;
+      padding: 7mm;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+    }
+    .marca-dagua {
+      position: absolute;
+      top: 45%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-32deg);
+      font-size: 26pt;
+      font-weight: 900;
+      color: rgba(220, 38, 38, 0.16);
+      text-align: center;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 10;
+      border: 4px solid rgba(220, 38, 38, 0.16);
+      padding: 8px 20px;
+    }
+    .secao-titulo {
+      background: #e2e8f0;
+      border: 1px solid #000;
+      border-bottom: none;
+      padding: 3px 6px;
+      font-size: 7.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-top: 8px;
+    }
+    table.grade {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    table.grade td {
+      border: 1px solid #000;
+      padding: 4px 6px;
+      vertical-align: top;
+    }
+    .lbl {
+      display: block;
+      font-size: 6pt;
+      text-transform: uppercase;
+      color: #333;
+      margin-bottom: 1px;
+    }
+    .val {
+      display: block;
+      font-size: 9pt;
+      font-weight: 700;
+      word-break: break-word;
+    }
+    .val.norm {
+      font-weight: 400;
+    }
+    .val.num {
+      text-align: right;
+    }
+    .chave-nfse {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 8.8pt;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    @media print {
+      body {
+        background: #fff;
+        padding: 0;
+      }
+      .tela-only {
+        display: none !important;
+      }
+      .folha-a4 {
+        width: 100%;
+        min-height: auto;
+        box-shadow: none;
+        padding: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="tela-only">
+    <div class="toolbar-row">
+      <div>
+        <strong>Espelho DANFSe — Padrão Nacional (NT 008/2026)</strong>
+        <span>| Origem: {{ arquivo_origem }}</span>
+      </div>
+      <div>
+        <button type="button" class="btn-acao" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+        <a class="btn-acao sec" href="/lote/{{ lote_id }}/nota/{{ identificador }}/xml" download>⬇ Baixar XML Original</a>
+      </div>
+    </div>
+    {% if alertas %}
+    <div class="banner-alerta">
+      <strong>Alertas de Validação neste Documento:</strong>
+      {% for a in alertas %}
+        <div>• [{{ a.severidade }}] <code>{{ a.codigo }}</code>: {{ a.mensagem }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="folha-a4">
+    {% if marca_dagua %}
+      <div class="marca-dagua">{{ marca_dagua }}</div>
+    {% endif %}
+
+    <!-- Cabeçalho do Sistema Nacional NFS-e -->
+    <table class="grade">
+      <tr>
+        <td style="width: 68%; text-align: center; vertical-align: middle;">
+          <h1 style="font-size: 13pt;">DANFSe — Documento Auxiliar da NFS-e</h1>
+          <p style="font-size: 8.5pt; margin-top: 2px;">Sistema Nacional da Nota Fiscal de Serviço Eletrônica (Padrão Nacional — NT 008/2026)</p>
+          <p style="font-size: 8pt; margin-top: 2px;">Município Emissor: <strong>{{ prestador.municipio or "Ambiente Nacional" }} {{ prestador.uf }}</strong></p>
+        </td>
+        <td style="width: 32%;">
+          <span class="lbl">NÚMERO DA NFS-e / SÉRIE</span>
+          <span class="val" style="font-size: 11pt;">{{ numero_fmt }} (Série {{ serie }})</span>
+          <span class="lbl" style="margin-top: 4px;">DATA E HORA DE EMISSÃO</span>
+          <span class="val norm">{{ data_emissao_fmt }}</span>
+          <span class="lbl" style="margin-top: 4px;">COMPETÊNCIA</span>
+          <span class="val norm">{{ competencia_fmt }}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <span class="lbl">CHAVE DE ACESSO DA NFS-e (50 POSIÇÕES)</span>
+          <span class="chave-nfse">{{ chave_fmt }}</span>
+        </td>
+        <td>
+          <span class="lbl">AMBIENTE / SITUAÇÃO</span>
+          <span class="val norm">{{ ambiente_desc }} — <strong>{{ situacao }}</strong></span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Emitente / Prestador do Serviço -->
+    <div class="secao-titulo">Emitente / Prestador do Serviço</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 60%;">
+          <span class="lbl">NOME / EMPRESARIAL</span>
+          <span class="val">{{ prestador.razao_social }}</span>
+        </td>
+        <td style="width: 22%;">
+          <span class="lbl">CNPJ / CPF</span>
+          <span class="val">{{ prestador.documento_fmt }}</span>
+        </td>
+        <td style="width: 18%;">
+          <span class="lbl">INSCRIÇÃO MUNICIPAL</span>
+          <span class="val norm">{{ prestador.inscricao_municipal or "-" }}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <span class="lbl">ENDEREÇO</span>
+          <span class="val norm">{{ prestador.endereco or "-" }}</span>
+        </td>
+        <td>
+          <span class="lbl">MUNICÍPIO / UF</span>
+          <span class="val norm">{{ prestador.municipio }} - {{ prestador.uf }}</span>
+        </td>
+        <td>
+          <span class="lbl">CEP / TELEFONE</span>
+          <span class="val norm">{{ prestador.cep_fmt }} {{ prestador.telefone }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Tomador do Serviço -->
+    <div class="secao-titulo">Tomador do Serviço</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 60%;">
+          <span class="lbl">NOME / RAZÃO SOCIAL</span>
+          <span class="val">{{ tomador.razao_social }}</span>
+        </td>
+        <td style="width: 22%;">
+          <span class="lbl">CNPJ / CPF</span>
+          <span class="val">{{ tomador.documento_fmt }}</span>
+        </td>
+        <td style="width: 18%;">
+          <span class="lbl">INSCRIÇÃO MUNICIPAL</span>
+          <span class="val norm">{{ tomador.inscricao_municipal or "-" }}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <span class="lbl">ENDEREÇO</span>
+          <span class="val norm">{{ tomador.endereco or "-" }}</span>
+        </td>
+        <td>
+          <span class="lbl">MUNICÍPIO / UF</span>
+          <span class="val norm">{{ tomador.municipio }} - {{ tomador.uf }}</span>
+        </td>
+        <td>
+          <span class="lbl">E-MAIL / CONTATO</span>
+          <span class="val norm">{{ tomador.email or tomador.telefone or "-" }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Serviço Prestado -->
+    <div class="secao-titulo">Serviço Prestado</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 34%;">
+          <span class="lbl">CÓDIGO DE TRIBUTAÇÃO NACIONAL (cTribNac)</span>
+          <span class="val">{{ servico.codigo_tributacao_nacional }}</span>
+        </td>
+        <td style="width: 33%;">
+          <span class="lbl">CÓDIGO NBS</span>
+          <span class="val norm">{{ servico.codigo_nbs }}</span>
+        </td>
+        <td style="width: 33%;">
+          <span class="lbl">NATUREZA DA OPERAÇÃO</span>
+          <span class="val norm">{{ natureza_operacao }}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="3" style="min-height: 70px;">
+          <span class="lbl">DISCRIMINAÇÃO DOS SERVIÇOS</span>
+          <span class="val norm" style="margin-top: 3px; white-space: pre-line;">{{ servico.descricao }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Tributação Municipal (ISSQN) -->
+    <div class="secao-titulo">Tributação Municipal (ISSQN)</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 25%;">
+          <span class="lbl">BASE DE CÁLCULO ISSQN (R$)</span>
+          <span class="val num">{{ totais.valor_servicos_fmt }}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">ALÍQUOTA ISSQN (%)</span>
+          <span class="val num">{{ servico.iss_aliquota_fmt }}%</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">RETENÇÃO DO ISSQN</span>
+          <span class="val">{{ servico.iss_retido_str }}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">VALOR DO ISSQN (R$)</span>
+          <span class="val num">{{ totais.iss_fmt }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Tributação Federal e Reforma Tributária (IBS / CBS) -->
+    <div class="secao-titulo">Tributação Federal e Reforma Tributária (IBS / CBS — EC 132/2023)</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 25%;">
+          <span class="lbl">PIS (R$)</span>
+          <span class="val num">{{ totais.pis_fmt }}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">COFINS (R$)</span>
+          <span class="val num">{{ totais.cofins_fmt }}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">RETENÇÕES FEDERAIS (IRRF/CSLL/CP) (R$)</span>
+          <span class="val num">{{ totais.retencoes_federais_fmt }}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="lbl">IBS / CBS TOTAL (R$)</span>
+          <span class="val num">{{ totais.ibs_cbs_fmt }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Valor Total da NFS-e -->
+    <div class="secao-titulo">Totais da NFS-e</div>
+    <table class="grade">
+      <tr>
+        <td style="width: 33%;">
+          <span class="lbl">VALOR DO SERVIÇO (R$)</span>
+          <span class="val num">{{ totais.valor_servicos_fmt }}</span>
+        </td>
+        <td style="width: 33%;">
+          <span class="lbl">DESCONTOS (R$)</span>
+          <span class="val num">{{ totais.valor_desconto_fmt }}</span>
+        </td>
+        <td style="width: 34%; background: #f8fafc;">
+          <span class="lbl">VALOR LÍQUIDO DA NFS-e (R$)</span>
+          <span class="val num" style="font-size: 11pt;">R$ {{ totais.valor_liquido_fmt }}</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Informações Complementares -->
+    <div class="secao-titulo">Informações Complementares</div>
+    <table class="grade">
+      <tr>
+        <td style="min-height: 45px;">
+          <span class="val norm">{{ informacoes_complementares or "Documento emitido conforme leiaute nacional da NFS-e." }}</span>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>
