@@ -49,7 +49,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Implementar `parsers/detector.py`: recebe `bytes` (ou caminho/stream de XML ou `.zip`), detecta automaticamente NF-e (55), NFC-e (65), NFS-e Nacional, Resumo ou Evento, faz o parse e passa pelos validadores.
   - Rejeitar com mensagem clara layouts municipais legados (ex.: ABRASF) informando que apenas o Padrão Nacional da NFS-e é suportado.
 
-- [ ] **7. Resumo de lote e processamento eficiente em memória (`reports/resumo.py`)**
+- [x] **7. Resumo de lote e processamento eficiente em memória (`reports/resumo.py`)**
   - Implementar agregador de lote capaz de processar iteradores/streams de notas (meta: 1.000+ XMLs sem carregar todas as árvores DOM na memória simultaneamente).
   - Gerar totais consolidados:
     - Por emitente (CNPJ, razão social, quantidade de notas, valor total, impostos).

@@ -8,8 +8,8 @@ from collections.abc import Iterable, Iterator
 from decimal import Decimal
 from pathlib import PurePosixPath
 
-from models.fiscal import DocumentoFiscal, ResultadoAnalise
-from models.normalizadores import DECIMAL_ZERO
+from models.fiscal import AlertaValidacao, DocumentoFiscal, ResultadoAnalise
+from models.normalizadores import DECIMAL_ZERO, limpar_chave_acesso
 from parsers.nfe import parse_nfe_element
 from parsers.nfse_nacional import (
     ErroLayoutNFSeMunicipalLegado,
@@ -187,6 +187,38 @@ def iterar_resultados_lote(
                 nome_arquivo,
                 tolerancia_financeira=tolerancia_financeira,
             )
+
+
+def iterar_lote(
+    entradas: Iterable[tuple[str, bytes | str]],
+    *,
+    tolerancia_financeira: Decimal = DECIMAL_ZERO,
+) -> Iterator[ResultadoAnalise]:
+    """Processa XMLs/ZIPs em streaming detectando chaves duplicadas incrementalmente."""
+    chaves_vistas: set[str] = set()
+    tipos_chave_unica = {"NFE", "NFCE", "NFSE", "RESUMO"}
+
+    for resultado in iterar_resultados_lote(
+        entradas,
+        tolerancia_financeira=tolerancia_financeira,
+    ):
+        doc = resultado.documento
+        if doc is not None and doc.tipo in tipos_chave_unica:
+            chave = limpar_chave_acesso(doc.chave_acesso)
+            if chave:
+                if chave in chaves_vistas:
+                    resultado.alertas.append(
+                        AlertaValidacao(
+                            codigo="CHAVE_DUPLICADA_LOTE",
+                            severidade="ERRO",
+                            mensagem=f"Chave de acesso '{chave}' duplicada no lote.",
+                            campo="chave_acesso",
+                        )
+                    )
+                    resultado.valido = False
+                else:
+                    chaves_vistas.add(chave)
+        yield resultado
 
 
 def processar_lote(

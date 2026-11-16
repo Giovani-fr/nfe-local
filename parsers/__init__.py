@@ -2,6 +2,7 @@
 
 from parsers.detector import (
     extrair_xmls_de_zip,
+    iterar_lote,
     iterar_resultados_lote,
     parse_documento_xml,
     processar_arquivo_xml,
@@ -40,6 +41,7 @@ __all__ = [
     "eh_xml_nfse_legada",
     "eh_xml_nfse_nacional",
     "extrair_xmls_de_zip",
+    "iterar_lote",
     "iterar_resultados_lote",
     "nome_local",
     "parse_documento_xml",
