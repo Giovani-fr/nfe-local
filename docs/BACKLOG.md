@@ -95,7 +95,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
 
 ## Fase 2 — Notas Emitidas Contra o CNPJ da Empresa (`NFeDistribuicaoDFe`)
 
-- [ ] **13. Leitor de Certificado A1 e Cliente SOAP do `NFeDistribuicaoDFe` em homologação, escrito do zero (`sefaz/cert_a1.py` e `sefaz/dist_dfe.py`)**
+- [x] **13. Leitor de Certificado A1 e Cliente SOAP do `NFeDistribuicaoDFe` em homologação, escrito do zero (`sefaz/cert_a1.py` e `sefaz/dist_dfe.py`)**
   - Implementar `sefaz/cert_a1.py`: leitura do `.pfx` (PKCS#12) via `cryptography` a partir de variáveis de ambiente (`NFE_CERT_PATH` e `NFE_CERT_SENHA`), extraindo CNPJ (OID ICP-Brasil `2.16.76.1.3.3` ou CN), titular, emissor e validade UTC sem gravar chave privada desencriptada em disco.
   - Implementar `sefaz/dist_dfe.py`: montagem do envelope SOAP 1.2 (`nfeDistDFeInteresse` / `distDFeInt_v1.01.xsd`) e chamada HTTPS com mTLS (`requests-pkcs12` ou `ssl.SSLContext`) apontando para o Ambiente Nacional da NF-e (homologação por padrão, produção configurável).
 
