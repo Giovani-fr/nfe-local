@@ -1,4 +1,4 @@
-"""Pacote de integração com WebServices da SEFAZ (DistDFe, Certificado A1 e Controle de NSU)."""
+"""Pacote de integração com WebServices da SEFAZ (DistDFe, Certificado A1, NSU e Descompactador)."""
 
 from sefaz.cert_a1 import (
     OID_ICP_BRASIL_CNPJ,
@@ -22,6 +22,20 @@ from sefaz.controle_nsu import (
     executar_loop_nsu,
     verificar_janela_consulta,
 )
+from sefaz.descompactador import (
+    CODIGO_ALERTA_MANIFESTACAO_NECESSARIA,
+    CODIGO_ERRO_DOCZIP_CORROMPIDO,
+    MAX_BYTES_XML_DOC_ZIP_PADRAO,
+    MENSAGEM_ALERTA_MANIFESTACAO_NECESSARIA,
+    CategoriaSchemaDocZip,
+    DocumentoDistDFeProcessado,
+    ErroDescompactacaoDocZip,
+    classificar_schema_doc_zip,
+    compactar_xml_para_doc_zip_b64,
+    descompactar_doc_zip,
+    processar_item_doc_zip,
+    processar_lote_doc_zip,
+)
 from sefaz.dist_dfe import (
     CONTENT_TYPE_SOAP_DIST_DFE,
     SOAP_ACTION_DIST_DFE,
@@ -40,10 +54,14 @@ from sefaz.dist_dfe import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "CODIGO_ALERTA_MANIFESTACAO_NECESSARIA",
+    "CODIGO_ERRO_DOCZIP_CORROMPIDO",
     "CONTENT_TYPE_SOAP_DIST_DFE",
     "CSTAT_CONSUMO_INDEVIDO",
     "CSTAT_DOCS_LOCALIZADOS",
     "CSTAT_NENHUM_DOC",
+    "MAX_BYTES_XML_DOC_ZIP_PADRAO",
+    "MENSAGEM_ALERTA_MANIFESTACAO_NECESSARIA",
     "OID_ICP_BRASIL_CNPJ",
     "OID_ICP_BRASIL_CPF_RESPONSAVEL",
     "SOAP_ACTION_DIST_DFE",
@@ -51,10 +69,13 @@ __all__ = [
     "TEMPO_ESPERA_137_SEGUNDOS",
     "URL_DIST_DFE_HOMOLOGACAO",
     "URL_DIST_DFE_PRODUCAO",
+    "CategoriaSchemaDocZip",
     "ClienteNFeDistribuicaoDFe",
+    "DocumentoDistDFeProcessado",
     "ErroBloqueioSEFAZ",
     "ErroCertificadoA1",
     "ErroComunicacaoSEFAZ",
+    "ErroDescompactacaoDocZip",
     "EstadoCursorNSU",
     "ItemDocZip",
     "MetadadosCertificado",
@@ -64,11 +85,16 @@ __all__ = [
     "aplicar_resposta_no_cursor",
     "carregar_certificado_de_env",
     "carregar_pkcs12_memoria",
+    "classificar_schema_doc_zip",
+    "compactar_xml_para_doc_zip_b64",
+    "descompactar_doc_zip",
     "executar_loop_nsu",
     "extrair_metadados_certificado",
     "formatar_nsu",
     "montar_envelope_dist_dfe",
     "parse_resposta_dist_dfe",
+    "processar_item_doc_zip",
+    "processar_lote_doc_zip",
     "resolver_ambiente_sefaz",
     "verificar_janela_consulta",
 ]

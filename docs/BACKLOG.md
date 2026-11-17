@@ -106,7 +106,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - `cStat == 137`: nenhum documento localizado; registrar timestamp e encerrar rodada.
     - `cStat == 656`: consumo indevido; gravar trava obrigatória (`bloqueado_ate = agora + 1 hora`) para impedir qualquer nova requisição antes de 60 minutos (evitando reset do bloqueio na SEFAZ).
 
-- [ ] **15. Descompactar as respostas (`docZip`) e passar as notas pelo parser existente (`sefaz/descompactador.py`)**
+- [x] **15. Descompactar as respostas (`docZip`) e passar as notas pelo parser existente (`sefaz/descompactador.py`)**
   - Decodificar cada `<docZip NSU="..." schema="...">` (`base64` -> `gzip.decompress`).
   - Encaminhar os bytes XML descompactados para `parsers/detector.py`, identificando resumos (`resNFe`), notas completas (`procNFe`) e eventos (`procEventoNFe`).
   - Sinalizar claramente quando uma nota veio apenas como `resNFe` (exigindo Manifestação do Destinatário para liberar o XML completo).
