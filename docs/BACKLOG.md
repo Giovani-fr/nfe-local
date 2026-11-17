@@ -99,7 +99,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Implementar `sefaz/cert_a1.py`: leitura do `.pfx` (PKCS#12) via `cryptography` a partir de variáveis de ambiente (`NFE_CERT_PATH` e `NFE_CERT_SENHA`), extraindo CNPJ (OID ICP-Brasil `2.16.76.1.3.3` ou CN), titular, emissor e validade UTC sem gravar chave privada desencriptada em disco.
   - Implementar `sefaz/dist_dfe.py`: montagem do envelope SOAP 1.2 (`nfeDistDFeInteresse` / `distDFeInt_v1.01.xsd`) e chamada HTTPS com mTLS (`requests-pkcs12` ou `ssl.SSLContext`) apontando para o Ambiente Nacional da NF-e (homologação por padrão, produção configurável).
 
-- [ ] **14. Controle de NSU e de espera: guardar `ultNSU` e respeitar os retornos `137`, `138` e `656`**
+- [x] **14. Controle de NSU e de espera: guardar `ultNSU` e respeitar os retornos `137`, `138` e `656`**
   - Parsear o retorno SOAP `<retDistDFeInt>` extraindo `cStat`, `xMotivo`, `ultNSU` e `maxNSU`.
   - Implementar máquina de estados de sincronização:
     - `cStat == 138`: documentos localizados; avançar `ultNSU` e continuar enquanto `ultNSU < maxNSU`.

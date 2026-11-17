@@ -1,4 +1,4 @@
-"""Pacote de integração com WebServices da SEFAZ (DistDFe e Certificado A1)."""
+"""Pacote de integração com WebServices da SEFAZ (DistDFe, Certificado A1 e Controle de NSU)."""
 
 from sefaz.cert_a1 import (
     OID_ICP_BRASIL_CNPJ,
@@ -8,6 +8,19 @@ from sefaz.cert_a1 import (
     carregar_certificado_de_env,
     carregar_pkcs12_memoria,
     extrair_metadados_certificado,
+)
+from sefaz.controle_nsu import (
+    CSTAT_CONSUMO_INDEVIDO,
+    CSTAT_DOCS_LOCALIZADOS,
+    CSTAT_NENHUM_DOC,
+    TEMPO_BLOQUEIO_656_SEGUNDOS,
+    TEMPO_ESPERA_137_SEGUNDOS,
+    ErroBloqueioSEFAZ,
+    EstadoCursorNSU,
+    ResultadoSincronizacaoNSU,
+    aplicar_resposta_no_cursor,
+    executar_loop_nsu,
+    verificar_janela_consulta,
 )
 from sefaz.dist_dfe import (
     CONTENT_TYPE_SOAP_DIST_DFE,
@@ -28,23 +41,34 @@ __version__ = "0.1.0"
 
 __all__ = [
     "CONTENT_TYPE_SOAP_DIST_DFE",
+    "CSTAT_CONSUMO_INDEVIDO",
+    "CSTAT_DOCS_LOCALIZADOS",
+    "CSTAT_NENHUM_DOC",
     "OID_ICP_BRASIL_CNPJ",
     "OID_ICP_BRASIL_CPF_RESPONSAVEL",
     "SOAP_ACTION_DIST_DFE",
+    "TEMPO_BLOQUEIO_656_SEGUNDOS",
+    "TEMPO_ESPERA_137_SEGUNDOS",
     "URL_DIST_DFE_HOMOLOGACAO",
     "URL_DIST_DFE_PRODUCAO",
     "ClienteNFeDistribuicaoDFe",
+    "ErroBloqueioSEFAZ",
     "ErroCertificadoA1",
     "ErroComunicacaoSEFAZ",
+    "EstadoCursorNSU",
     "ItemDocZip",
     "MetadadosCertificado",
     "RespostaDistDFe",
+    "ResultadoSincronizacaoNSU",
     "__version__",
+    "aplicar_resposta_no_cursor",
     "carregar_certificado_de_env",
     "carregar_pkcs12_memoria",
+    "executar_loop_nsu",
     "extrair_metadados_certificado",
     "formatar_nsu",
     "montar_envelope_dist_dfe",
     "parse_resposta_dist_dfe",
     "resolver_ambiente_sefaz",
+    "verificar_janela_consulta",
 ]
