@@ -87,7 +87,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Criar script de benchmark (`scripts/benchmark_lote.py`) que gera 1.000 XMLs sintéticos em memória/temp, mede tempo total, throughput (notas/s) e pico de memória (`tracemalloc`), e documentar em `docs/benchmark.md`.
   - Escrever `README.md` (Português) e `README.en.md` (Inglês) com prints/GIF simulados, instruções de uso, tabela de estado do projeto, limitações conhecidas e seção **"Como usei IA"**.
 
-- [ ] **12. (Opcional) Perguntas sobre o lote com LLM, com cache e limite de uso**
+- [x] **12. (Opcional) Perguntas sobre o lote com LLM, com cache e limite de uso**
   - Módulo opcional ativado apenas se variável de ambiente do provedor LLM estiver configurada.
   - Recebe uma pergunta sobre o resumo/itens do lote (enviando apenas dados agregados/estruturados, com cache em disco por hash do lote+pergunta e rate-limit configurável).
 

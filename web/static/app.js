@@ -132,7 +132,83 @@
       )
       .join("");
 
+    const boxRespLlm = document.getElementById("llm-resposta-box");
+    if (boxRespLlm) boxRespLlm.classList.add("hidden");
+    atualizarStatusLLM();
+
     renderizarTabelaNotas();
+  };
+
+  const atualizarStatusLLM = async () => {
+    const badge = document.getElementById("llm-status-badge");
+    const quota = document.getElementById("llm-quota-counter");
+    if (!badge || !quota) return;
+
+    try {
+      const resp = await fetch("/api/llm/status");
+      if (!resp.ok) return;
+      const st = await resp.json();
+      if (st.configurado) {
+        badge.className = "badge badge-ok";
+        badge.textContent = `Ativo (${st.modelo})`;
+      } else {
+        badge.className = "badge badge-warn";
+        badge.textContent = "Desativado (defina LLM_API_KEY no .env)";
+      }
+      quota.textContent = `Chamadas restantes: ${st.chamadas_restantes}/${st.max_chamadas_hora} por hora`;
+    } catch (_) {
+      badge.className = "badge badge-type";
+      badge.textContent = "Status indisponível";
+    }
+  };
+
+  const enviarPerguntaLLM = async (perguntaTexto) => {
+    if (!estado.loteId) return;
+    const pergunta = (perguntaTexto || "").trim();
+    if (pergunta.length < 3) return;
+
+    const btn = document.getElementById("btn-enviar-pergunta-llm");
+    const box = document.getElementById("llm-resposta-box");
+    const modeloEl = document.getElementById("llm-resposta-modelo");
+    const cacheBadge = document.getElementById("llm-badge-cache");
+    const textoEl = document.getElementById("llm-resposta-texto");
+    const quotaEl = document.getElementById("llm-quota-counter");
+
+    btn.disabled = true;
+    box.classList.remove("hidden");
+    cacheBadge.classList.add("hidden");
+    modeloEl.textContent = "Consultando assistente...";
+    textoEl.textContent = "Aguarde...";
+
+    try {
+      const resp = await fetch(`/api/lote/${estado.loteId}/perguntar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pergunta }),
+      });
+      const dados = await resp.json();
+      if (!resp.ok) {
+        modeloEl.textContent = `Aviso (${resp.status})`;
+        textoEl.textContent = dados.detail || "Não foi possível consultar o assistente LLM.";
+        return;
+      }
+
+      modeloEl.textContent = `Modelo: ${dados.modelo}`;
+      if (dados.em_cache) {
+        cacheBadge.classList.remove("hidden");
+      } else {
+        cacheBadge.classList.add("hidden");
+      }
+      textoEl.textContent = dados.resposta;
+      if (quotaEl && typeof dados.chamadas_restantes === "number") {
+        quotaEl.textContent = `Chamadas restantes: ${dados.chamadas_restantes} na hora atual`;
+      }
+    } catch (err) {
+      modeloEl.textContent = "Erro de comunicação";
+      textoEl.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
   };
 
   const renderizarBadgesNota = (res) => {
@@ -371,5 +447,24 @@
     document.getElementById("btn-fechar-modal").addEventListener("click", () => {
       document.getElementById("modal-detalhes").classList.add("hidden");
     });
+
+    const formPergunta = document.getElementById("form-pergunta-llm");
+    const inputPergunta = document.getElementById("input-pergunta-llm");
+    if (formPergunta && inputPergunta) {
+      formPergunta.addEventListener("submit", (e) => {
+        e.preventDefault();
+        enviarPerguntaLLM(inputPergunta.value);
+      });
+    }
+
+    document.querySelectorAll(".llm-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const p = chip.getAttribute("data-pergunta") || "";
+        if (inputPergunta) inputPergunta.value = p;
+        enviarPerguntaLLM(p);
+      });
+    });
+
+    atualizarStatusLLM();
   });
 })();

@@ -16,13 +16,19 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, Response, Uplo
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from api import __version__
 from models.fiscal import ResultadoAnalise
 from models.normalizadores import limpar_chave_acesso
 from parsers.detector import extrair_xmls_de_zip, processar_arquivo_xml
 from parsers.xml_seguro import ErroParseXML
+from reports.assistente_lote import (
+    ErroComunicacaoLLM,
+    ErroLimiteUsoLLM,
+    ErroLLMNaoConfigurado,
+    ServicoAssistenteLote,
+)
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
@@ -67,6 +73,34 @@ class RespostaLote(BaseModel):
     criado_em: datetime
     resumo: ResumoLote
     resultados: list[ResultadoAnalise]
+
+
+class StatusLLMResponse(BaseModel):
+    """Payload de status do assistente opcional com LLM."""
+
+    configurado: bool
+    modelo: str
+    chamadas_restantes: int
+    max_chamadas_hora: int
+
+
+class PerguntaLoteRequest(BaseModel):
+    """Payload de entrada para perguntas sobre um lote processado."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    pergunta: str = Field(..., min_length=3, max_length=500)
+
+
+class PerguntaLoteResponse(BaseModel):
+    """Payload de resposta do assistente LLM sobre um lote."""
+
+    lote_id: str
+    pergunta: str
+    resposta: str
+    em_cache: bool
+    modelo: str
+    chamadas_restantes: int
 
 
 class RepositorioLotesMemoria:
@@ -115,11 +149,23 @@ class RepositorioLotesMemoria:
 
 
 _REPOSITORIO_LOTES = RepositorioLotesMemoria()
+_SERVICO_ASSISTENTE = ServicoAssistenteLote()
 
 
 def obter_repositorio_lotes() -> RepositorioLotesMemoria:
     """Retorna a instância singleton do repositório de lotes em memória."""
     return _REPOSITORIO_LOTES
+
+
+def obter_servico_assistente() -> ServicoAssistenteLote:
+    """Retorna a instância atual do serviço de assistente LLM."""
+    return _SERVICO_ASSISTENTE
+
+
+def definir_servico_assistente(servico: ServicoAssistenteLote) -> None:
+    """Substitui a instância do serviço de assistente LLM (útil em testes offline)."""
+    global _SERVICO_ASSISTENTE
+    _SERVICO_ASSISTENTE = servico
 
 
 def processar_entradas_com_xml_bruto(
@@ -467,4 +513,41 @@ def baixar_xml_nota(lote_id: str, identificador: str) -> Response:
         content=xml_bytes,
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{nome_seguro}"'},
+    )
+
+
+@app.get("/api/llm/status", response_model=StatusLLMResponse)
+def status_assistente_llm() -> StatusLLMResponse:
+    """Retorna a disponibilidade, modelo e franquia restante do assistente LLM opcional."""
+    dados = _SERVICO_ASSISTENTE.obter_status()
+    return StatusLLMResponse(**dados)
+
+
+@app.post("/api/lote/{lote_id}/perguntar", response_model=PerguntaLoteResponse)
+def perguntar_sobre_lote(lote_id: str, payload: PerguntaLoteRequest) -> PerguntaLoteResponse:
+    """Consulta o assistente LLM opcional sobre o resumo e alertas de um lote processado."""
+    lote = _REPOSITORIO_LOTES.obter(lote_id)
+    if lote is None:
+        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+
+    try:
+        resultado_llm = _SERVICO_ASSISTENTE.perguntar(
+            resumo=lote.resumo,
+            resultados=lote.resultados,
+            pergunta=payload.pergunta,
+        )
+    except ErroLLMNaoConfigurado as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ErroLimiteUsoLLM as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ErroComunicacaoLLM as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return PerguntaLoteResponse(
+        lote_id=lote.lote_id,
+        pergunta=resultado_llm.pergunta,
+        resposta=resultado_llm.resposta,
+        em_cache=resultado_llm.em_cache,
+        modelo=resultado_llm.modelo,
+        chamadas_restantes=resultado_llm.chamadas_restantes,
     )

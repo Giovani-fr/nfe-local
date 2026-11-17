@@ -147,6 +147,58 @@
         </div>
       </section>
 
+      <!-- Seção Recolhível: Perguntar sobre o lote (Opcional — IA) -->
+      <details id="card-assistente-llm" class="card llm-card">
+        <summary class="llm-summary">
+          <div class="llm-summary-title">
+            <span>🤖 Perguntar sobre o lote (Opcional — IA)</span>
+            <span id="llm-status-badge" class="badge badge-type">Verificando status...</span>
+          </div>
+          <span id="llm-quota-counter" class="muted">Chamadas restantes: -</span>
+        </summary>
+
+        <div class="llm-body">
+          <p class="muted llm-hint">
+            Envia apenas o resumo contábil e alertas já calculados localmente em Python (nunca envia XMLs brutos). Respostas idênticas usam cache SHA-256 sem gastar franquia.
+          </p>
+
+          <div class="llm-chips">
+            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Quais notas possuem erros ou alertas?">
+              Quais notas possuem erros ou alertas?
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Qual o resumo de impostos por emitente?">
+              Qual o resumo de impostos por emitente?
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Existem notas em homologação ou sem protocolo?">
+              Existem notas em homologação ou sem protocolo?
+            </button>
+          </div>
+
+          <form id="form-pergunta-llm" class="llm-form">
+            <input
+              id="input-pergunta-llm"
+              type="text"
+              minlength="3"
+              maxlength="500"
+              placeholder="Digite uma pergunta sobre os totais, impostos ou alertas deste lote..."
+              class="input-control llm-input"
+              required
+            />
+            <button id="btn-enviar-pergunta-llm" type="submit" class="btn btn-primary">
+              Perguntar ao Assistente
+            </button>
+          </form>
+
+          <div id="llm-resposta-box" class="llm-resposta-box hidden">
+            <div class="llm-resposta-meta">
+              <strong id="llm-resposta-modelo">Modelo: -</strong>
+              <span id="llm-badge-cache" class="badge badge-ok hidden">⚡ Cache local</span>
+            </div>
+            <div id="llm-resposta-texto" class="llm-resposta-texto"></div>
+          </div>
+        </div>
+      </details>
+
       <!-- Lista Filtrável de Notas -->
       <section class="card notes-section">
         <div class="notes-header">
