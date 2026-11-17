@@ -1,4 +1,4 @@
-"""Pacote de integração com WebServices da SEFAZ (DistDFe, Certificado A1, NSU e Descompactador)."""
+"""Pacote de integração com WebServices da SEFAZ (`DistDFe`, Certificado A1, NSU e SQLite)."""
 
 from sefaz.cert_a1 import (
     OID_ICP_BRASIL_CNPJ,
@@ -50,10 +50,22 @@ from sefaz.dist_dfe import (
     parse_resposta_dist_dfe,
     resolver_ambiente_sefaz,
 )
+from sefaz.storage import (
+    CAMINHO_DB_PADRAO,
+    TIPOS_EVENTO_CANCELAMENTO,
+    RegistroNotaRecebida,
+    RegistroSyncLog,
+    RepositorioDistDFeSQLite,
+    ResumoExecucaoSync,
+    StatusPersistenciaDoc,
+    resolver_caminho_db,
+    sincronizar_dist_dfe,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "CAMINHO_DB_PADRAO",
     "CODIGO_ALERTA_MANIFESTACAO_NECESSARIA",
     "CODIGO_ERRO_DOCZIP_CORROMPIDO",
     "CONTENT_TYPE_SOAP_DIST_DFE",
@@ -67,6 +79,7 @@ __all__ = [
     "SOAP_ACTION_DIST_DFE",
     "TEMPO_BLOQUEIO_656_SEGUNDOS",
     "TEMPO_ESPERA_137_SEGUNDOS",
+    "TIPOS_EVENTO_CANCELAMENTO",
     "URL_DIST_DFE_HOMOLOGACAO",
     "URL_DIST_DFE_PRODUCAO",
     "CategoriaSchemaDocZip",
@@ -79,8 +92,13 @@ __all__ = [
     "EstadoCursorNSU",
     "ItemDocZip",
     "MetadadosCertificado",
+    "RegistroNotaRecebida",
+    "RegistroSyncLog",
+    "RepositorioDistDFeSQLite",
     "RespostaDistDFe",
     "ResultadoSincronizacaoNSU",
+    "ResumoExecucaoSync",
+    "StatusPersistenciaDoc",
     "__version__",
     "aplicar_resposta_no_cursor",
     "carregar_certificado_de_env",
@@ -96,5 +114,7 @@ __all__ = [
     "processar_item_doc_zip",
     "processar_lote_doc_zip",
     "resolver_ambiente_sefaz",
+    "resolver_caminho_db",
+    "sincronizar_dist_dfe",
     "verificar_janela_consulta",
 ]

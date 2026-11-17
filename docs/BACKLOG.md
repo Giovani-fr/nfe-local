@@ -111,7 +111,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Encaminhar os bytes XML descompactados para `parsers/detector.py`, identificando resumos (`resNFe`), notas completas (`procNFe`) e eventos (`procEventoNFe`).
   - Sinalizar claramente quando uma nota veio apenas como `resNFe` (exigindo Manifestação do Destinatário para liberar o XML completo).
 
-- [ ] **16. Persistência mínima em SQLite para NSU e notas recebidas (`sefaz/storage.py`)**
+- [x] **16. Persistência mínima em SQLite para NSU e notas recebidas (`sefaz/storage.py`)**
   - Criar banco SQLite local (fora do Git, em `data/nfe_recebidas.db`) com tabelas:
     - `dfe_cursor` (`ambiente`, `ultimo_nsu`, `max_nsu`, `ultima_busca`, `bloqueado_ate`).
     - `notas_recebidas` (`chave`, `nsu`, `schema`, `tipo`, `emitente_cnpj`, `emitente_nome`, `data_emissao`, `valor_total`, `situacao`, `manifestacao_necessaria`, `xml_gzip`, `atualizado_em`).
