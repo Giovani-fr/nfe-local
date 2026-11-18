@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from decimal import Decimal
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app
-from api.app import obter_repositorio_lotes
+from api.app import definir_repositorio_recebidas, obter_repositorio_lotes
 from parsers.detector import processar_arquivo_xml
 from reports.danfe_svg import (
     barcode_svg,
@@ -21,15 +22,21 @@ from reports.danfe_svg import (
     montar_contexto_danfe,
     montar_contexto_danfse,
 )
+from sefaz.storage import RepositorioDistDFeSQLite
 
 PASTA_FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture()
-def client() -> TestClient:
-    """Retorna cliente de teste do FastAPI com repositório em memória limpo."""
+def client(tmp_path: Path) -> Generator[TestClient, None, None]:
+    """Retorna cliente de teste do FastAPI com repositório em memória limpo e SQLite isolado."""
     obter_repositorio_lotes().limpar()
-    return TestClient(app)
+    definir_repositorio_recebidas(RepositorioDistDFeSQLite(tmp_path / "test_web_danfe.db"))
+    try:
+        yield TestClient(app)
+    finally:
+        obter_repositorio_lotes().limpar()
+        definir_repositorio_recebidas(None)
 
 
 class TestFormatadoresEBarcodeSvg:

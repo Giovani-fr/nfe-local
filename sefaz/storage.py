@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from models.fiscal import ResultadoAnalise
 from models.normalizadores import (
     DECIMAL_ZERO,
     limpar_chave_acesso,
@@ -20,6 +21,7 @@ from models.normalizadores import (
     para_data_hora,
     para_decimal,
 )
+from reports.resumo import ResumoLote, gerar_resumo_lote
 from sefaz.controle_nsu import EstadoCursorNSU, executar_loop_nsu
 from sefaz.descompactador import (
     CategoriaSchemaDocZip,
@@ -97,6 +99,37 @@ CREATE TABLE IF NOT EXISTS sync_log (
     novos_docs INTEGER NOT NULL,
     ultimo_nsu TEXT
 );
+
+CREATE TABLE IF NOT EXISTS lotes_upload (
+    lote_id TEXT PRIMARY KEY,
+    nome_rotulo TEXT NOT NULL,
+    origem TEXT NOT NULL,
+    criado_em TEXT NOT NULL,
+    total_arquivos INTEGER NOT NULL,
+    validos INTEGER NOT NULL,
+    com_erros INTEGER NOT NULL,
+    com_avisos INTEGER NOT NULL,
+    valor_total_notas TEXT NOT NULL,
+    resumo_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lotes_upload_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lote_id TEXT NOT NULL,
+    indice INTEGER NOT NULL,
+    arquivo_origem TEXT NOT NULL,
+    chave_acesso TEXT,
+    tipo_documento TEXT,
+    valido INTEGER NOT NULL,
+    resultado_json TEXT NOT NULL,
+    xml_gzip BLOB,
+    UNIQUE(lote_id, indice)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lotes_upload_criado_em
+    ON lotes_upload(criado_em DESC);
+CREATE INDEX IF NOT EXISTS idx_lotes_upload_itens_lote_id
+    ON lotes_upload_itens(lote_id, indice ASC);
 """
 
 
@@ -155,6 +188,22 @@ class ResumoExecucaoSync(BaseModel):
     eventos_registrados: int = 0
     bloqueado_656: bool = False
     fila_zerada: bool = False
+
+
+class ResumoHistoricoLote(BaseModel):
+    """Metadados persistidos de um lote importado via upload ou demonstração."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    lote_id: str
+    nome_rotulo: str
+    origem: Literal["upload", "demo"] = "upload"
+    criado_em: datetime
+    total_arquivos: int = 0
+    validos: int = 0
+    com_erros: int = 0
+    com_avisos: int = 0
+    valor_total_notas: Decimal = DECIMAL_ZERO
 
 
 def resolver_caminho_db(caminho_db: str | Path | None = None) -> Path:
@@ -653,6 +702,270 @@ class RepositorioDistDFeSQLite:
                 )
             )
         return logs
+
+    def salvar_lote_upload(
+        self,
+        lote_id: str,
+        criado_em: datetime,
+        resumo: ResumoLote,
+        resultados: list[ResultadoAnalise],
+        xmls_brutos: dict[str, bytes],
+        nome_rotulo: str = "",
+        origem: Literal["upload", "demo"] = "upload",
+    ) -> ResumoHistoricoLote:
+        """Grava o cabeçalho do lote e cada item analisado (com XML compactado em `gzip`)."""
+        origem_norm: Literal["upload", "demo"] = "demo" if origem == "demo" else "upload"
+        rotulo_final = nome_rotulo.strip()
+        if not rotulo_final:
+            if origem_norm == "demo":
+                rotulo_final = "Lote de Demonstração"
+            else:
+                nomes = [r.arquivo_origem for r in resultados[:2] if r.arquivo_origem]
+                amostra = ", ".join(nomes)
+                if len(resultados) > 2:
+                    amostra = f"{amostra}, ..."
+                qtd = len(resultados)
+                plural = "arquivo" if qtd == 1 else "arquivos"
+                rotulo_final = f"{qtd} {plural} ({amostra})" if amostra else f"Lote {lote_id}"
+
+        criado_iso = _dt_para_iso(criado_em) or datetime.now(UTC).isoformat()
+        cont = resumo.contagem
+        valor_str = f"{resumo.valor_total_notas:.2f}"
+        resumo_json_str = resumo.model_dump_json()
+
+        with self._conectar() as conn:
+            conn.execute("DELETE FROM lotes_upload_itens WHERE lote_id = ?", (lote_id,))
+            conn.execute(
+                """
+                INSERT INTO lotes_upload (
+                    lote_id, nome_rotulo, origem, criado_em,
+                    total_arquivos, validos, com_erros, com_avisos,
+                    valor_total_notas, resumo_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lote_id) DO UPDATE SET
+                    nome_rotulo = excluded.nome_rotulo,
+                    origem = excluded.origem,
+                    criado_em = excluded.criado_em,
+                    total_arquivos = excluded.total_arquivos,
+                    validos = excluded.validos,
+                    com_erros = excluded.com_erros,
+                    com_avisos = excluded.com_avisos,
+                    valor_total_notas = excluded.valor_total_notas,
+                    resumo_json = excluded.resumo_json
+                """,
+                (
+                    lote_id,
+                    rotulo_final,
+                    origem_norm,
+                    criado_iso,
+                    cont.total_arquivos,
+                    cont.validos,
+                    cont.com_erros,
+                    cont.com_avisos,
+                    valor_str,
+                    resumo_json_str,
+                ),
+            )
+
+            for idx, res in enumerate(resultados):
+                doc = res.documento
+                chave_orig = doc.chave_acesso if doc is not None else ""
+                chave_limpa = limpar_chave_acesso(chave_orig) if chave_orig else ""
+                tipo_doc = doc.tipo if doc is not None else "ERRO_XML"
+
+                xml_bytes = (
+                    xmls_brutos.get(str(idx))
+                    or (xmls_brutos.get(chave_orig) if chave_orig else None)
+                    or (xmls_brutos.get(chave_limpa) if chave_limpa else None)
+                )
+                xml_gz = gzip.compress(xml_bytes, compresslevel=6) if xml_bytes else None
+
+                conn.execute(
+                    """
+                    INSERT INTO lotes_upload_itens (
+                        lote_id, indice, arquivo_origem, chave_acesso,
+                        tipo_documento, valido, resultado_json, xml_gzip
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        lote_id,
+                        idx,
+                        res.arquivo_origem,
+                        chave_limpa or chave_orig or None,
+                        tipo_doc,
+                        1 if res.valido else 0,
+                        res.model_dump_json(),
+                        xml_gz,
+                    ),
+                )
+
+        return ResumoHistoricoLote(
+            lote_id=lote_id,
+            nome_rotulo=rotulo_final,
+            origem=origem_norm,
+            criado_em=_iso_para_dt(criado_iso) or criado_em,
+            total_arquivos=cont.total_arquivos,
+            validos=cont.validos,
+            com_erros=cont.com_erros,
+            com_avisos=cont.com_avisos,
+            valor_total_notas=resumo.valor_total_notas,
+        )
+
+    def obter_lote_upload(
+        self, lote_id: str
+    ) -> tuple[datetime, ResumoLote, list[ResultadoAnalise], dict[str, bytes]] | None:
+        """Reconstrói um lote completo (`criado_em`, `resumo`, `resultados`, `xmls_brutos`)."""
+        with self._conectar() as conn:
+            cab = conn.execute(
+                "SELECT criado_em, resumo_json FROM lotes_upload WHERE lote_id = ?",
+                (lote_id,),
+            ).fetchone()
+            if cab is None:
+                return None
+
+            itens_rows = conn.execute(
+                """
+                SELECT indice, resultado_json, xml_gzip
+                FROM lotes_upload_itens
+                WHERE lote_id = ?
+                ORDER BY indice ASC
+                """,
+                (lote_id,),
+            ).fetchall()
+
+        criado_em = _iso_para_dt(cab["criado_em"]) or datetime.now(UTC)
+        resultados: list[ResultadoAnalise] = []
+        xmls_brutos: dict[str, bytes] = {}
+
+        for idx, row in enumerate(itens_rows):
+            res = ResultadoAnalise.model_validate_json(row["resultado_json"])
+            resultados.append(res)
+            if row["xml_gzip"]:
+                xml_bytes = gzip.decompress(bytes(row["xml_gzip"]))
+                xmls_brutos[str(idx)] = xml_bytes
+                doc = res.documento
+                if doc is not None and doc.chave_acesso:
+                    chave_orig = doc.chave_acesso
+                    chave_limpa = limpar_chave_acesso(chave_orig)
+                    if chave_orig not in xmls_brutos:
+                        xmls_brutos[chave_orig] = xml_bytes
+                    if chave_limpa and chave_limpa not in xmls_brutos:
+                        xmls_brutos[chave_limpa] = xml_bytes
+
+        try:
+            resumo = ResumoLote.model_validate_json(cab["resumo_json"])
+        except Exception:
+            resumo = gerar_resumo_lote(resultados)
+
+        return criado_em, resumo, resultados, xmls_brutos
+
+    def listar_lotes_upload(self, limite: int = 50) -> list[ResumoHistoricoLote]:
+        """Lista o histórico de lotes salvos ordenado por `criado_em DESC`."""
+        lim = max(1, int(limite))
+        with self._conectar() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    lote_id, nome_rotulo, origem, criado_em,
+                    total_arquivos, validos, com_erros, com_avisos,
+                    valor_total_notas
+                FROM lotes_upload
+                ORDER BY criado_em DESC, rowid DESC
+                LIMIT ?
+                """,
+                (lim,),
+            ).fetchall()
+
+        historico: list[ResumoHistoricoLote] = []
+        for r in rows:
+            orig: Literal["upload", "demo"] = "demo" if r["origem"] == "demo" else "upload"
+            historico.append(
+                ResumoHistoricoLote(
+                    lote_id=r["lote_id"],
+                    nome_rotulo=r["nome_rotulo"],
+                    origem=orig,
+                    criado_em=_iso_para_dt(r["criado_em"]) or datetime.now(UTC),
+                    total_arquivos=int(r["total_arquivos"]),
+                    validos=int(r["validos"]),
+                    com_erros=int(r["com_erros"]),
+                    com_avisos=int(r["com_avisos"]),
+                    valor_total_notas=para_decimal(r["valor_total_notas"]),
+                )
+            )
+        return historico
+
+    def excluir_lote_upload(self, lote_id: str) -> bool:
+        """Remove um lote e seus itens do SQLite. Retorna `True` se o lote existia."""
+        with self._conectar() as conn:
+            conn.execute("DELETE FROM lotes_upload_itens WHERE lote_id = ?", (lote_id,))
+            cur = conn.execute("DELETE FROM lotes_upload WHERE lote_id = ?", (lote_id,))
+            return int(cur.rowcount or 0) > 0
+
+    def limpar_lotes_upload(self, apenas_demo: bool = False) -> int:
+        """Remove todos os lotes (ou apenas os de `origem == 'demo'`) e retorna a contagem."""
+        with self._conectar() as conn:
+            if apenas_demo:
+                conn.execute(
+                    """
+                    DELETE FROM lotes_upload_itens
+                    WHERE lote_id IN (SELECT lote_id FROM lotes_upload WHERE origem = 'demo')
+                    """
+                )
+                cur = conn.execute("DELETE FROM lotes_upload WHERE origem = 'demo'")
+            else:
+                conn.execute("DELETE FROM lotes_upload_itens")
+                cur = conn.execute("DELETE FROM lotes_upload")
+            return int(cur.rowcount or 0)
+
+    def obter_acervo_unificado(
+        self,
+    ) -> tuple[datetime, ResumoLote, list[ResultadoAnalise], dict[str, bytes]]:
+        """Consolida todas as notas de todos os lotes no SQLite, deduplicando chaves repetidas."""
+        tipos_principais = {"NFE", "NFCE", "NFSE", "RESUMO"}
+        with self._conectar() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    l.criado_em,
+                    i.resultado_json,
+                    i.xml_gzip
+                FROM lotes_upload_itens i
+                INNER JOIN lotes_upload l ON l.lote_id = i.lote_id
+                ORDER BY l.criado_em DESC, l.rowid DESC, i.indice ASC
+                """
+            ).fetchall()
+
+        criado_em_ref = (
+            (_iso_para_dt(rows[0]["criado_em"]) or datetime.now(UTC)) if rows else datetime.now(UTC)
+        )
+        resultados_unificados: list[ResultadoAnalise] = []
+        xmls_brutos: dict[str, bytes] = {}
+        chaves_vistas: set[str] = set()
+
+        for row in rows:
+            res = ResultadoAnalise.model_validate_json(row["resultado_json"])
+            doc = res.documento
+            chave_orig = doc.chave_acesso if doc is not None else ""
+            chave_limpa = limpar_chave_acesso(chave_orig) if chave_orig else ""
+
+            if doc is not None and doc.tipo in tipos_principais and chave_limpa:
+                if chave_limpa in chaves_vistas:
+                    continue
+                chaves_vistas.add(chave_limpa)
+
+            idx_unificado = len(resultados_unificados)
+            resultados_unificados.append(res)
+
+            if row["xml_gzip"]:
+                xml_bytes = gzip.decompress(bytes(row["xml_gzip"]))
+                xmls_brutos[str(idx_unificado)] = xml_bytes
+                if chave_orig and chave_orig not in xmls_brutos:
+                    xmls_brutos[chave_orig] = xml_bytes
+                if chave_limpa and chave_limpa not in xmls_brutos:
+                    xmls_brutos[chave_limpa] = xml_bytes
+
+        resumo = gerar_resumo_lote(resultados_unificados)
+        return criado_em_ref, resumo, resultados_unificados, xmls_brutos
 
 
 def sincronizar_dist_dfe(

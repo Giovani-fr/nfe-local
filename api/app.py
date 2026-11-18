@@ -58,6 +58,7 @@ from sefaz.storage import (
     RegistroSyncLog,
     RepositorioDistDFeSQLite,
     ResumoExecucaoSync,
+    ResumoHistoricoLote,
     sincronizar_dist_dfe,
 )
 from validators.lote import criar_resultado_erro_xml, validar_lote
@@ -159,6 +160,13 @@ class ListaNotasRecebidasResponse(BaseModel):
     notas: list[RegistroNotaRecebida] = Field(default_factory=list)
 
 
+class ListaHistoricoLotesResponse(BaseModel):
+    """Payload de listagem do histórico de lotes persistidos no SQLite."""
+
+    total: int
+    lotes: list[ResumoHistoricoLote] = Field(default_factory=list)
+
+
 class RepositorioLotesMemoria:
     """Repositório thread-safe em memória com política de descarte LRU."""
 
@@ -183,9 +191,13 @@ class RepositorioLotesMemoria:
             resultados=resultados,
             xmls_brutos=xmls_brutos,
         )
+        return self.salvar_lote(lote)
+
+    def salvar_lote(self, lote: LoteArmazenado) -> LoteArmazenado:
+        """Insere ou atualiza um `LoteArmazenado` existente no cache LRU."""
         with self._lock:
-            self._lotes[lote_id] = lote
-            self._lotes.move_to_end(lote_id)
+            self._lotes[lote.lote_id] = lote
+            self._lotes.move_to_end(lote.lote_id)
             while len(self._lotes) > self._max_lotes:
                 self._lotes.popitem(last=False)
         return lote
@@ -197,6 +209,11 @@ class RepositorioLotesMemoria:
             if lote is not None:
                 self._lotes.move_to_end(lote_id)
             return lote
+
+    def remover(self, lote_id: str) -> bool:
+        """Remove um lote específico da memória. Retorna `True` se existia."""
+        with self._lock:
+            return self._lotes.pop(lote_id, None) is not None
 
     def limpar(self) -> None:
         """Remove todos os lotes armazenados em memória."""
@@ -343,6 +360,60 @@ def _filtrar_resultados(
     return filtrados
 
 
+def _gerar_nome_rotulo_upload(nomes_enviados: list[str], total_resultados: int) -> str:
+    """Gera um rótulo amigável para o histórico de lotes com base nos arquivos enviados."""
+    nomes_limpos = [n.strip() for n in nomes_enviados if n.strip()]
+    if not nomes_limpos:
+        qtd = total_resultados
+        plural = "arquivo" if qtd == 1 else "arquivos"
+        return f"{qtd} {plural}"
+
+    if len(nomes_limpos) == 1:
+        nome_unico = nomes_limpos[0]
+        if nome_unico.lower().endswith(".zip") and total_resultados > 1:
+            return f"{nome_unico} ({total_resultados} XMLs)"
+        return f"1 arquivo ({nome_unico})"
+
+    amostra = ", ".join(nomes_limpos[:2])
+    if len(nomes_limpos) > 2:
+        amostra = f"{amostra}, ..."
+    return f"{len(nomes_limpos)} arquivos ({amostra})"
+
+
+def _resolver_lote_ou_acervo(lote_id: str) -> LoteArmazenado:
+    """Resolve `acervo` dinamicamente no SQLite ou busca `lote_id` em RAM com fallback SQLite."""
+    ident = lote_id.strip()
+    if ident.lower() == "acervo":
+        criado_em, resumo, resultados, xmls_brutos = (
+            obter_repositorio_recebidas().obter_acervo_unificado()
+        )
+        return LoteArmazenado(
+            lote_id="acervo",
+            criado_em=criado_em,
+            resumo=resumo,
+            resultados=resultados,
+            xmls_brutos=xmls_brutos,
+        )
+
+    lote = _REPOSITORIO_LOTES.obter(ident)
+    if lote is not None:
+        return lote
+
+    persistido = obter_repositorio_recebidas().obter_lote_upload(ident)
+    if persistido is None:
+        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+
+    criado_em, resumo, resultados, xmls_brutos = persistido
+    lote_hidratado = LoteArmazenado(
+        lote_id=ident,
+        criado_em=criado_em,
+        resumo=resumo,
+        resultados=resultados,
+        xmls_brutos=xmls_brutos,
+    )
+    return _REPOSITORIO_LOTES.salvar_lote(lote_hidratado)
+
+
 def _localizar_nota_no_lote(
     lote: LoteArmazenado, identificador: str
 ) -> tuple[int, ResultadoAnalise]:
@@ -424,6 +495,16 @@ async def criar_lote(
 
     resultados, xmls_brutos = processar_entradas_com_xml_bruto(entradas)
     lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_brutos)
+    nome_rotulo = _gerar_nome_rotulo_upload([n for n, _ in entradas], len(resultados))
+    obter_repositorio_recebidas().salvar_lote_upload(
+        lote_id=lote.lote_id,
+        criado_em=lote.criado_em,
+        resumo=lote.resumo,
+        resultados=lote.resultados,
+        xmls_brutos=lote.xmls_brutos,
+        nome_rotulo=nome_rotulo,
+        origem="upload",
+    )
 
     return RespostaLote(
         lote_id=lote.lote_id,
@@ -450,6 +531,15 @@ def criar_lote_demo() -> RespostaLote:
 
     resultados, xmls_brutos = processar_entradas_com_xml_bruto(entradas)
     lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_brutos)
+    obter_repositorio_recebidas().salvar_lote_upload(
+        lote_id=lote.lote_id,
+        criado_em=lote.criado_em,
+        resumo=lote.resumo,
+        resultados=lote.resultados,
+        xmls_brutos=lote.xmls_brutos,
+        nome_rotulo="Lote de Demonstração",
+        origem="demo",
+    )
 
     return RespostaLote(
         lote_id=lote.lote_id,
@@ -457,6 +547,67 @@ def criar_lote_demo() -> RespostaLote:
         resumo=lote.resumo,
         resultados=lote.resultados,
     )
+
+
+@app.get("/api/acervo", response_model=RespostaLote)
+def obter_acervo(
+    tipo: str | None = Query(default=None, description="Filtra por tipo (NFE, NFCE, NFSE, etc.)"),
+    valido: bool | None = Query(default=None, description="Filtra por status de validade"),
+    busca: str | None = Query(
+        default=None,
+        description="Busca textual por chave, número, CNPJ/CPF ou razão social",
+    ),
+) -> RespostaLote:
+    """Retorna o resumo e todas as notas consolidadas no Acervo Unificado (`lote_id='acervo'`)."""
+    return obter_lote(
+        lote_id="acervo",
+        tipo=tipo,
+        valido=valido,
+        busca=busca,
+    )
+
+
+@app.get("/api/lotes", response_model=ListaHistoricoLotesResponse)
+def listar_historico_lotes(
+    limite: int = Query(default=50, ge=1, le=500, description="Limite máximo de lotes listados"),
+) -> ListaHistoricoLotesResponse:
+    """Lista o histórico de lotes salvos no SQLite ordenados do mais recente ao mais antigo."""
+    lotes = obter_repositorio_recebidas().listar_lotes_upload(limite=limite)
+    return ListaHistoricoLotesResponse(total=len(lotes), lotes=lotes)
+
+
+@app.delete("/api/lote/{lote_id}")
+def excluir_lote(lote_id: str) -> dict[str, str | bool]:
+    """Remove um lote específico do SQLite e do cache em memória."""
+    removido_db = obter_repositorio_recebidas().excluir_lote_upload(lote_id)
+    removido_mem = _REPOSITORIO_LOTES.remover(lote_id)
+    if not removido_db and not removido_mem:
+        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    return {"lote_id": lote_id, "removido": True}
+
+
+@app.delete("/api/lotes")
+def limpar_historico_lotes(
+    apenas_demo: bool = Query(
+        default=False,
+        description="Se true, remove apenas os lotes de demonstração mantendo uploads reais.",
+    ),
+) -> dict[str, int]:
+    """Limpa o histórico de lotes do SQLite (e do cache em memória)."""
+    repo_db = obter_repositorio_recebidas()
+    if apenas_demo:
+        ids_demo = [
+            item.lote_id
+            for item in repo_db.listar_lotes_upload(limite=1000)
+            if item.origem == "demo"
+        ]
+        removidos = repo_db.limpar_lotes_upload(apenas_demo=True)
+        for lid in ids_demo:
+            _REPOSITORIO_LOTES.remover(lid)
+    else:
+        removidos = repo_db.limpar_lotes_upload(apenas_demo=False)
+        _REPOSITORIO_LOTES.limpar()
+    return {"removidos": removidos}
 
 
 @app.get("/api/lote/{lote_id}", response_model=RespostaLote)
@@ -470,9 +621,7 @@ def obter_lote(
     ),
 ) -> RespostaLote:
     """Retorna o resumo e os documentos de um lote processado, com suporte a filtros."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     resultados_filtrados = _filtrar_resultados(
         lote.resultados,
@@ -491,9 +640,7 @@ def obter_lote(
 @app.get("/api/lote/{lote_id}/nota/{identificador}", response_model=ResultadoAnalise)
 def obter_nota_do_lote(lote_id: str, identificador: str) -> ResultadoAnalise:
     """Retorna o `ResultadoAnalise` de uma nota específica pela chave de acesso ou índice."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     _, resultado = _localizar_nota_no_lote(lote, identificador)
     return resultado
@@ -505,22 +652,20 @@ def exportar_lote(
     formato: Literal["csv", "itens_csv", "xlsx"] = Query(default="xlsx"),
 ) -> Response:
     """Exporta o lote analisado para download nos formatos CSV (notas/itens) ou XLSX."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     if formato == "csv":
         conteudo = exportar_notas_csv(lote.resultados)
         media_type = "text/csv; charset=utf-8"
-        nome_arquivo = f"lote_{lote_id}.csv"
+        nome_arquivo = f"lote_{lote.lote_id}.csv"
     elif formato == "itens_csv":
         conteudo = exportar_itens_csv(lote.resultados)
         media_type = "text/csv; charset=utf-8"
-        nome_arquivo = f"lote_{lote_id}_itens.csv"
+        nome_arquivo = f"lote_{lote.lote_id}_itens.csv"
     else:
         conteudo = exportar_lote_xlsx(lote.resultados, resumo=lote.resumo)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        nome_arquivo = f"lote_{lote_id}.xlsx"
+        nome_arquivo = f"lote_{lote.lote_id}.xlsx"
 
     return Response(
         content=conteudo,
@@ -536,9 +681,7 @@ def renderizar_espelho_nota(
     identificador: str,
 ) -> HTMLResponse:
     """Renderiza o espelho A4 imprimível (DANFE NF-e/NFC-e ou DANFSe NT 008/2026)."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     _, resultado = _localizar_nota_no_lote(lote, identificador)
     if resultado.documento is None:
@@ -557,7 +700,7 @@ def renderizar_espelho_nota(
         contexto = montar_contexto_danfe(resultado)
         nome_template = "danfe.html"
 
-    contexto["lote_id"] = lote_id
+    contexto["lote_id"] = lote.lote_id
     contexto["identificador"] = identificador
     return templates.TemplateResponse(request, nome_template, contexto)
 
@@ -565,9 +708,7 @@ def renderizar_espelho_nota(
 @app.get("/lote/{lote_id}/nota/{identificador}/xml")
 def baixar_xml_nota(lote_id: str, identificador: str) -> Response:
     """Retorna os bytes brutos do XML original da nota selecionada."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     indice, resultado = _localizar_nota_no_lote(lote, identificador)
     xml_bytes = (
@@ -604,9 +745,7 @@ def status_assistente_llm() -> StatusLLMResponse:
 @app.post("/api/lote/{lote_id}/perguntar", response_model=PerguntaLoteResponse)
 def perguntar_sobre_lote(lote_id: str, payload: PerguntaLoteRequest) -> PerguntaLoteResponse:
     """Consulta o assistente LLM opcional sobre o resumo e alertas de um lote processado."""
-    lote = _REPOSITORIO_LOTES.obter(lote_id)
-    if lote is None:
-        raise HTTPException(status_code=404, detail=f"Lote '{lote_id}' não encontrado.")
+    lote = _resolver_lote_ou_acervo(lote_id)
 
     try:
         resultado_llm = _SERVICO_ASSISTENTE.perguntar(

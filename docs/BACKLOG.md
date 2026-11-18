@@ -129,3 +129,28 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
 
 - [x] **19. Documentar o manuseio seguro do certificado no README (PT e EN)**
   - Documentar no `README.md` e `README.en.md` como configurar o certificado e-CNPJ A1 via variáveis de ambiente, garantias de que o `.pfx` nunca entra no Git nem na imagem Docker, funcionamento do `NFeDistribuicaoDFe` (NSU, janela de 90 dias da SEFAZ, manifestação do destinatário e trava do erro `656`).
+
+---
+
+## Fase 3 — Evolução de Produto: Histórico Persistente, Gestão Visual de Certificado A1 e Nova UX
+
+- [x] **20. Histórico Persistente de Lotes e Acervo Unificado de Notas no SQLite (`sefaz/storage.py` e `api/app.py`)**
+  - Persistir no SQLite local (`data/nfe_recebidas.db`) todos os lotes e documentos importados via upload (`lotes_importados` e `itens_lote_importado`), mantendo compatibilidade total com os endpoints existentes (`/api/lote/*`).
+  - Ao reiniciar o servidor ou recarregar a página, manter todo o histórico de lotes e notas acessível no disco.
+  - Criar endpoints para:
+    - Listar o histórico de lotes importados (`GET /api/lotes`), com opção de excluir um lote específico (`DELETE /api/lote/{lote_id}`) ou limpar o histórico (`DELETE /api/lotes`).
+    - Consultar o **"Acervo Unificado"** (`GET /api/acervo`): consolida todas as notas de todos os lotes já carregados (deduplicando chaves idênticas nos totalizadores financeiros via `gerar_resumo_lote`), permitindo filtrar, exportar CSV/XLSX (`GET /api/acervo/exportar`), perguntar ao assistente IA (`POST /api/acervo/perguntar`) e abrir o DANFE/DANFSe ou baixar o XML de qualquer nota já carregada em qualquer lote.
+
+- [ ] **21. Cadastro e Gerenciamento Visual do Certificado Digital A1 na Interface (`sefaz/cert_a1.py` e `api/app.py`)**
+  - Permitir que o usuário cadastre o certificado digital `.pfx` / `.p12`, senha, UF (`cUFAutor`) e ambiente (`Homologação` ou `Produção`) diretamente pela interface web, sem precisar editar arquivo `.env` manualmente.
+  - Salvar o certificado de forma segura na pasta local ignorada pelo Git (`data/certificado/certificado.pfx` e metadados/configuração local em `data/certificado/config.json`), com nome fixo (proteção contra *path traversal* no nome do arquivo enviado).
+  - Validar o par `.pfx + senha` em memória com `cryptography` antes de salvar, retornando imediatamente Titular, CNPJ, Emissor e Validade (dias restantes).
+  - Criar endpoints `POST /api/recebidas/certificado` (upload `.pfx` + senha + UF + ambiente), `PATCH /api/recebidas/config` (alternar ambiente Homologação/Produção ou UF) e `DELETE /api/recebidas/certificado` (remover certificado do computador).
+
+- [ ] **22. Redesign Completo da Interface do Usuário (UX de Produto Real em `web/`)**
+  - Reestruturar a interface web para navegação fluida focada no usuário final:
+    - **Seletor de Escopo (Histórico Lateral / Topo):** alternar com 1 clique entre **"📚 Todo o Acervo (Todas as Notas)"** e qualquer lote individual do **"📦 Histórico de Lotes Importados"** (com botão de excluir lote ou limpar demonstração), carregando automaticamente ao abrir a página (`F5` não perde nada).
+    - **Importação Inteligente e Compacta:** área de upload que não ocupa metade da tela quando já há notas carregadas (botão/barra compacta `"➕ Adicionar XMLs / ZIP"` com suporte a drag-and-drop global).
+    - **Organização Visual em Sub-visões Limpas:** separar claramente a **`📋 Tabela de Notas e Filtros`** (foco operacional imediato com busca, filtro por tipo, status, emitente e período) do **`📊 Painel Gerencial e Impostos`** (KPIs, tributos consolidados, tabelas por emitente e por competência) e do **`🤖 Assistente Analítico`**.
+    - **Modal/Painel Visual de Certificado A1 na Aba SEFAZ:** formulário amigável para selecionar o `.pfx`, digitar a senha, escolher UF e Ambiente (Homologação/Produção), ver status de validade e remover o certificado quando desejar.
+

@@ -5,22 +5,33 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api import __version__, app, cli
-from api.app import RepositorioLotesMemoria, obter_repositorio_lotes
+from api.app import (
+    RepositorioLotesMemoria,
+    definir_repositorio_recebidas,
+    obter_repositorio_lotes,
+)
+from sefaz.storage import RepositorioDistDFeSQLite
 
 PASTA_FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture()
-def client() -> TestClient:
-    """Retorna cliente de teste do FastAPI com repositório limpo."""
+def client(tmp_path: Path) -> Generator[TestClient, None, None]:
+    """Retorna cliente de teste do FastAPI com repositório limpo e SQLite isolado."""
     obter_repositorio_lotes().limpar()
-    return TestClient(app)
+    definir_repositorio_recebidas(RepositorioDistDFeSQLite(tmp_path / "test_api_cli.db"))
+    try:
+        yield TestClient(app)
+    finally:
+        obter_repositorio_lotes().limpar()
+        definir_repositorio_recebidas(None)
 
 
 def _criar_zip_em_memoria(nomes_fixtures: tuple[str, ...]) -> bytes:
