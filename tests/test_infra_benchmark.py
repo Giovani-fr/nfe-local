@@ -76,11 +76,30 @@ class TestInfraestruturaEDocumentacao:
         assert "Como usei IA" in txt_pt
         assert "README.en.md" in txt_pt
         assert "docs/benchmark.md" in txt_pt
+        assert "NFE_CERT_PATH" in txt_pt
+        assert "NFeDistribuicaoDFe" in txt_pt
+        assert "656" in txt_pt
+        assert "2.16.76.1.3.3" in txt_pt
+        assert "16–18" in txt_pt
 
         txt_en = readme_en.read_text(encoding="utf-8")
         assert "How I used AI" in txt_en
         assert "README.md" in txt_en
         assert "docs/benchmark.md" in txt_en
+        assert "NFE_CERT_PATH" in txt_en
+        assert "NFeDistribuicaoDFe" in txt_en
+        assert "656" in txt_en
+        assert "2.16.76.1.3.3" in txt_en
+        assert "16–18" in txt_en
+
+    def test_backlog_completo_com_todas_as_19_tarefas_concluidas(self) -> None:
+        backlog_md = (RAIZ_PROJETO / "docs" / "BACKLOG.md").read_text(encoding="utf-8")
+        marcados = [linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [x]")]
+        pendentes = [
+            linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [ ]")
+        ]
+        assert len(marcados) == 19
+        assert len(pendentes) == 0
 
 
 class TestBenchmarkLote:

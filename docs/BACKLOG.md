@@ -127,5 +127,5 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Criar fixtures de envelopes SOAP reais da estrutura `<retDistDFeInt>` (com dados fictícios compactados em `gzip+base64`) para `cStat 138` (múltiplas páginas até `ultNSU == maxNSU`), `cStat 137` e `cStat 656`.
   - Testar toda a cadeia (SOAP client mockado -> descompactador -> parser -> SQLite -> trava de 1h do `656` -> tela Recebidas) 100% offline.
 
-- [ ] **19. Documentar o manuseio seguro do certificado no README (PT e EN)**
+- [x] **19. Documentar o manuseio seguro do certificado no README (PT e EN)**
   - Documentar no `README.md` e `README.en.md` como configurar o certificado e-CNPJ A1 via variáveis de ambiente, garantias de que o `.pfx` nunca entra no Git nem na imagem Docker, funcionamento do `NFeDistribuicaoDFe` (NSU, janela de 90 dias da SEFAZ, manifestação do destinatário e trava do erro `656`).
