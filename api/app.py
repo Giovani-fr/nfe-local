@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -35,9 +35,15 @@ from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
 from sefaz.cert_a1 import (
+    ConfigCertificadoSEFAZ,
     ErroCertificadoA1,
     MetadadosCertificado,
-    carregar_certificado_de_env,
+    atualizar_config_sefaz_local,
+    carregar_certificado_configurado,
+    ler_config_sefaz_local,
+    remover_certificado_local,
+    resolver_diretorio_certificado,
+    salvar_certificado_local,
 )
 from sefaz.controle_nsu import (
     CSTAT_DOCS_LOCALIZADOS,
@@ -65,6 +71,7 @@ from validators.lote import criar_resultado_erro_xml, validar_lote
 
 MAX_LOTES_MEMORIA = 20
 _EXTENSOES_PERMITIDAS = (".xml", ".zip")
+_EXTENSOES_CERTIFICADO = (".pfx", ".p12")
 _ZIP_MAGIC_PREFIX = b"PK\x03\x04"
 
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
@@ -145,11 +152,23 @@ class StatusRecebidasSEFAZ(BaseModel):
     certificado_configurado: bool
     certificado: MetadadosCertificado | None = None
     erro_certificado: str | None = None
+    uf_autor: str = "35"
     ambiente: Literal[1, 2] = 2
+    origem_certificado: Literal["interface", "env", "nao_configurado"] = "nao_configurado"
+    config: ConfigCertificadoSEFAZ = Field(default_factory=ConfigCertificadoSEFAZ)
     cursor: EstadoCursorNSU
     bloqueado: bool = False
     segundos_bloqueio_restantes: int = 0
     ultimos_logs: list[RegistroSyncLog] = Field(default_factory=list)
+
+
+class AtualizarConfigSEFAZRequest(BaseModel):
+    """Payload para atualização rápida de UF autora e/ou ambiente SEFAZ (1 ou 2)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    uf_autor: str | None = None
+    ambiente: Literal[1, 2] | None = None
 
 
 class ListaNotasRecebidasResponse(BaseModel):
@@ -225,6 +244,7 @@ _REPOSITORIO_LOTES = RepositorioLotesMemoria()
 _SERVICO_ASSISTENTE = ServicoAssistenteLote()
 _REPOSITORIO_RECEBIDAS: RepositorioDistDFeSQLite | None = None
 _CONSULTOR_DIST_DFE: Callable[[str], RespostaDistDFe] | None = None
+_DIRETORIO_CERTIFICADO: Path | None = None
 
 
 def obter_repositorio_lotes() -> RepositorioLotesMemoria:
@@ -261,6 +281,17 @@ def definir_consultor_dist_dfe(fn: Callable[[str], RespostaDistDFe] | None) -> N
     """Injeta uma função `(ult_nsu) -> RespostaDistDFe` para testes offline de sincronização."""
     global _CONSULTOR_DIST_DFE
     _CONSULTOR_DIST_DFE = fn
+
+
+def obter_diretorio_certificado() -> Path:
+    """Retorna o diretório configurado para armazenamento local do certificado A1."""
+    return resolver_diretorio_certificado(_DIRETORIO_CERTIFICADO)
+
+
+def definir_diretorio_certificado(caminho: str | Path | None) -> None:
+    """Substitui o diretório local do certificado A1 (útil em testes com `tmp_path`)."""
+    global _DIRETORIO_CERTIFICADO
+    _DIRETORIO_CERTIFICADO = Path(caminho) if caminho is not None else None
 
 
 def processar_entradas_com_xml_bruto(
@@ -788,25 +819,26 @@ def _calcular_estado_bloqueio(cursor: EstadoCursorNSU) -> tuple[bool, int]:
     return True, segundos
 
 
-@app.get("/api/recebidas/status", response_model=StatusRecebidasSEFAZ)
-def status_recebidas_sefaz(
-    ambiente: int | None = Query(
-        default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
-    ),
-) -> StatusRecebidasSEFAZ:
-    """Inspeciona certificado A1, cursor `ultNSU`/`maxNSU`, trava `656` e últimos logs `DistDFe`."""
-    amb = resolver_ambiente_sefaz(ambiente)
-    repo = obter_repositorio_recebidas()
+def _montar_status_recebidas_sefaz(ambiente_override: int | None = None) -> StatusRecebidasSEFAZ:
+    """Inspeciona certificado A1, configuração local, cursor `ultNSU` e trava `656`."""
+    cert_dir = obter_diretorio_certificado()
+    config_sefaz = ler_config_sefaz_local(cert_dir)
 
     cert_configurado = False
     metadados_cert: MetadadosCertificado | None = None
     erro_cert: str | None = None
     try:
-        _, _, metadados_cert = carregar_certificado_de_env()
+        _, _, metadados_cert, config_sefaz = carregar_certificado_configurado(cert_dir)
         cert_configurado = True
     except ErroCertificadoA1 as exc:
         erro_cert = str(exc)
 
+    amb: Literal[1, 2] = (
+        resolver_ambiente_sefaz(ambiente_override)
+        if ambiente_override is not None
+        else config_sefaz.ambiente
+    )
+    repo = obter_repositorio_recebidas()
     cursor = repo.obter_cursor(ambiente=amb)
     bloqueado, segundos_restantes = _calcular_estado_bloqueio(cursor)
     ultimos_logs = repo.listar_logs_sync(limite=5)
@@ -815,12 +847,87 @@ def status_recebidas_sefaz(
         certificado_configurado=cert_configurado,
         certificado=metadados_cert,
         erro_certificado=erro_cert,
+        uf_autor=config_sefaz.uf_autor,
         ambiente=amb,
+        origem_certificado=config_sefaz.origem,
+        config=config_sefaz,
         cursor=cursor,
         bloqueado=bloqueado,
         segundos_bloqueio_restantes=segundos_restantes,
         ultimos_logs=ultimos_logs,
     )
+
+
+@app.get("/api/recebidas/status", response_model=StatusRecebidasSEFAZ)
+def status_recebidas_sefaz(
+    ambiente: int | None = Query(
+        default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
+    ),
+) -> StatusRecebidasSEFAZ:
+    """Inspeciona certificado A1, cursor `ultNSU`/`maxNSU`, trava `656` e últimos logs `DistDFe`."""
+    return _montar_status_recebidas_sefaz(ambiente_override=ambiente)
+
+
+@app.post("/api/recebidas/certificado", response_model=StatusRecebidasSEFAZ)
+async def cadastrar_certificado_recebidas(
+    arquivo: UploadFile = File(...),  # noqa: B008
+    senha: str = Form(...),
+    uf_autor: str = Form("35"),
+    ambiente: int = Form(2),
+) -> StatusRecebidasSEFAZ:
+    """Valida e salva localmente o Certificado Digital A1 (`.pfx`/`.p12`), senha, UF e ambiente."""
+    nome_original = (arquivo.filename or "").strip()
+    if not nome_original or not nome_original.lower().endswith(_EXTENSOES_CERTIFICADO):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Arquivo '{nome_original or 'sem_nome'}' inválido. "
+                "Envie um Certificado Digital A1 com extensão .pfx ou .p12."
+            ),
+        )
+
+    pfx_bytes = await arquivo.read()
+    amb_norm: Literal[1, 2] = 1 if ambiente == 1 else (2 if ambiente == 2 else 0)  # type: ignore[assignment]
+    if amb_norm not in (1, 2):
+        raise HTTPException(
+            status_code=400,
+            detail="Ambiente SEFAZ inválido (informe 1 para Produção ou 2 para Homologação).",
+        )
+
+    try:
+        salvar_certificado_local(
+            pfx_bytes=pfx_bytes,
+            senha=senha,
+            uf_autor=uf_autor,
+            ambiente=amb_norm,
+            cert_dir=obter_diretorio_certificado(),
+        )
+    except ErroCertificadoA1 as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _montar_status_recebidas_sefaz()
+
+
+@app.patch("/api/recebidas/config", response_model=StatusRecebidasSEFAZ)
+def atualizar_config_recebidas(payload: AtualizarConfigSEFAZRequest) -> StatusRecebidasSEFAZ:
+    """Alterna o ambiente SEFAZ (1=Produção, 2=Homologação) e/ou UF autora sem reenviar o `.pfx`."""
+    try:
+        atualizar_config_sefaz_local(
+            uf_autor=payload.uf_autor,
+            ambiente=payload.ambiente,
+            cert_dir=obter_diretorio_certificado(),
+        )
+    except ErroCertificadoA1 as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _montar_status_recebidas_sefaz()
+
+
+@app.delete("/api/recebidas/certificado", response_model=StatusRecebidasSEFAZ)
+def remover_certificado_recebidas() -> StatusRecebidasSEFAZ:
+    """Remove o Certificado Digital A1 salvo localmente no computador."""
+    remover_certificado_local(cert_dir=obter_diretorio_certificado())
+    return _montar_status_recebidas_sefaz()
 
 
 @app.post("/api/recebidas/sincronizar", response_model=ResumoExecucaoSync)
@@ -830,7 +937,11 @@ def sincronizar_recebidas_sefaz(
     ),
 ) -> ResumoExecucaoSync:
     """Executa uma rodada de sincronização `DistDFe` respeitando a trava de 1h (`656`)."""
-    amb = resolver_ambiente_sefaz(ambiente)
+    cert_dir = obter_diretorio_certificado()
+    config_local = ler_config_sefaz_local(cert_dir)
+    amb: Literal[1, 2] = (
+        resolver_ambiente_sefaz(ambiente) if ambiente is not None else config_local.ambiente
+    )
     repo = obter_repositorio_recebidas()
     cursor_atual = repo.obter_cursor(ambiente=amb)
 
@@ -842,13 +953,17 @@ def sincronizar_recebidas_sefaz(
     consultar_fn = _CONSULTOR_DIST_DFE
     if consultar_fn is None:
         try:
-            pfx_bytes, senha, _ = carregar_certificado_de_env()
+            pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
         except ErroCertificadoA1 as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        if ambiente is None:
+            amb = config_cert.ambiente
 
         cliente = ClienteNFeDistribuicaoDFe(
             pfx_bytes=pfx_bytes,
             senha=senha,
+            uf_autor=config_cert.uf_autor,
             ambiente=amb,
         )
         consultar_fn = lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu)  # noqa: E731

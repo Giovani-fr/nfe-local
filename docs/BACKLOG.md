@@ -141,7 +141,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - Listar o histórico de lotes importados (`GET /api/lotes`), com opção de excluir um lote específico (`DELETE /api/lote/{lote_id}`) ou limpar o histórico (`DELETE /api/lotes`).
     - Consultar o **"Acervo Unificado"** (`GET /api/acervo`): consolida todas as notas de todos os lotes já carregados (deduplicando chaves idênticas nos totalizadores financeiros via `gerar_resumo_lote`), permitindo filtrar, exportar CSV/XLSX (`GET /api/acervo/exportar`), perguntar ao assistente IA (`POST /api/acervo/perguntar`) e abrir o DANFE/DANFSe ou baixar o XML de qualquer nota já carregada em qualquer lote.
 
-- [ ] **21. Cadastro e Gerenciamento Visual do Certificado Digital A1 na Interface (`sefaz/cert_a1.py` e `api/app.py`)**
+- [x] **21. Cadastro e Gerenciamento Visual do Certificado Digital A1 na Interface (`sefaz/cert_a1.py` e `api/app.py`)**
   - Permitir que o usuário cadastre o certificado digital `.pfx` / `.p12`, senha, UF (`cUFAutor`) e ambiente (`Homologação` ou `Produção`) diretamente pela interface web, sem precisar editar arquivo `.env` manualmente.
   - Salvar o certificado de forma segura na pasta local ignorada pelo Git (`data/certificado/certificado.pfx` e metadados/configuração local em `data/certificado/config.json`), com nome fixo (proteção contra *path traversal* no nome do arquivo enviado).
   - Validar o par `.pfx + senha` em memória com `cryptography` antes de salvar, retornando imediatamente Titular, CNPJ, Emissor e Validade (dias restantes).
