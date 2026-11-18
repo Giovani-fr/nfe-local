@@ -13,8 +13,23 @@ from models.fiscal import ResultadoAnalise
 from parsers.detector import iterar_lote
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
+from sefaz.cert_a1 import ErroCertificadoA1, carregar_certificado_de_env
+from sefaz.controle_nsu import ErroBloqueioSEFAZ, EstadoCursorNSU
+from sefaz.dist_dfe import (
+    ClienteNFeDistribuicaoDFe,
+    ErroComunicacaoSEFAZ,
+    RespostaDistDFe,
+    parse_resposta_dist_dfe,
+    resolver_ambiente_sefaz,
+)
+from sefaz.storage import (
+    RepositorioDistDFeSQLite,
+    ResumoExecucaoSync,
+    sincronizar_dist_dfe,
+)
 
 _EXTENSOES_SUPORTADAS = {".xml", ".zip"}
+_PASTA_SOAP_FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "sefaz"
 
 
 def criar_parser() -> argparse.ArgumentParser:
@@ -84,6 +99,36 @@ def criar_parser() -> argparse.ArgumentParser:
         type=int,
         default=8765,
         help="Porta TCP do servidor (padrão: 8765).",
+    )
+
+    parser_sync = subparsers.add_parser(
+        "sincronizar-sefaz",
+        help="Sincroniza notas emitidas contra o CNPJ via NFeDistribuicaoDFe no SQLite local.",
+    )
+    parser_sync.add_argument(
+        "--db",
+        dest="caminho_db",
+        default=None,
+        metavar="ARQUIVO.db",
+        help="Caminho do banco SQLite local (padrão: data/nfe_recebidas.db).",
+    )
+    parser_sync.add_argument(
+        "--ambiente",
+        type=int,
+        choices=(1, 2),
+        default=None,
+        help="Ambiente SEFAZ: 1=Produção, 2=Homologação (padrão: 2).",
+    )
+    parser_sync.add_argument(
+        "--demo",
+        action="store_true",
+        help="Executa sincronização local usando envelopes SOAP simulados sem certificado real.",
+    )
+    parser_sync.add_argument(
+        "--json",
+        dest="saida_json",
+        action="store_true",
+        help="Imprime na saída padrão o JSON estruturado (ResumoExecucaoSync).",
     )
 
     return parser
@@ -199,6 +244,74 @@ def _executar_servidor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _imprimir_resumo_sync_terminal(resumo: ResumoExecucaoSync) -> None:
+    cur = resumo.cursor
+    nome_amb = "Produção" if cur.ambiente == 1 else "Homologação"
+    print("=" * 64)
+    print(f"nfe-local v{__version__} — Sincronização SEFAZ (NFeDistribuicaoDFe)")
+    print("=" * 64)
+    print(f"Ambiente SEFAZ                  : {cur.ambiente} ({nome_amb})")
+    print(f"Páginas consultadas             : {resumo.paginas_consultadas}")
+    print(f"Documentos processados (docZip) : {resumo.documentos_processados}")
+    print(f"  - Novas notas                 : {resumo.novas_notas}")
+    print(f"  - Notas atualizadas           : {resumo.notas_atualizadas}")
+    print(f"  - Eventos registrados         : {resumo.eventos_registrados}")
+    print(f"Cursor NSU (ultNSU / maxNSU)    : {cur.ultimo_nsu} / {cur.max_nsu}")
+    print(f"Último retorno SEFAZ            : cStat={cur.ultimo_cstat} ({cur.ultimo_motivo})")
+    print(f"Bloqueio cStat 656 ativo        : {'SIM' if resumo.bloqueado_656 else 'NÃO'}")
+    print("=" * 64)
+
+
+def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
+    amb = resolver_ambiente_sefaz(args.ambiente)
+    repo = RepositorioDistDFeSQLite(args.caminho_db)
+
+    if args.demo:
+        lote1_path = _PASTA_SOAP_FIXTURES / "soap_ret_138_lote1.xml"
+        lote2_path = _PASTA_SOAP_FIXTURES / "soap_ret_138_lote2.xml"
+        if not lote1_path.is_file() or not lote2_path.is_file():
+            print(
+                "Erro: Envelopes SOAP de demonstração não encontrados em 'tests/fixtures/sefaz/'.",
+                file=sys.stderr,
+            )
+            return 1
+
+        repo.salvar_cursor(EstadoCursorNSU(ambiente=amb))
+
+        def _consultar_demo(ult_nsu: str) -> RespostaDistDFe:
+            if ult_nsu == "000000000000000":
+                return parse_resposta_dist_dfe(lote1_path.read_bytes())
+            return parse_resposta_dist_dfe(lote2_path.read_bytes())
+
+        resumo = sincronizar_dist_dfe(
+            consultar_fn=_consultar_demo,
+            repo=repo,
+            ambiente=amb,
+        )
+    else:
+        try:
+            pfx_bytes, senha, _ = carregar_certificado_de_env()
+            cliente = ClienteNFeDistribuicaoDFe(
+                pfx_bytes=pfx_bytes,
+                senha=senha,
+                ambiente=amb,
+            )
+            resumo = sincronizar_dist_dfe(
+                consultar_fn=lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu),
+                repo=repo,
+                ambiente=amb,
+            )
+        except (ErroCertificadoA1, ErroBloqueioSEFAZ, ErroComunicacaoSEFAZ) as exc:
+            print(f"Erro: {exc}", file=sys.stderr)
+            return 1
+
+    if args.saida_json:
+        print(json.dumps(resumo.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    else:
+        _imprimir_resumo_sync_terminal(resumo)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Ponto de entrada principal da CLI."""
     parser = criar_parser()
@@ -208,6 +321,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _executar_analisar(args)
     if args.subcomando == "servidor":
         return _executar_servidor(args)
+    if args.subcomando == "sincronizar-sefaz":
+        return _executar_sincronizar_sefaz(args)
 
     parser.print_help()
     return 0

@@ -123,7 +123,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - Botão "Sincronizar agora" (respeitando o lock e o backoff de 1h).
     - Lista de notas recebidas filtrável por emitente, período, faixa de valor e tipo (`Completa` vs `Resumo`), abrindo o DANFE para as notas completas.
 
-- [ ] **18. Testes com respostas simuladas (`138`, `137` e `656`), sem tocar na SEFAZ**
+- [x] **18. Testes com respostas simuladas (`138`, `137` e `656`), sem tocar na SEFAZ**
   - Criar fixtures de envelopes SOAP reais da estrutura `<retDistDFeInt>` (com dados fictícios compactados em `gzip+base64`) para `cStat 138` (múltiplas páginas até `ultNSU == maxNSU`), `cStat 137` e `cStat 656`.
   - Testar toda a cadeia (SOAP client mockado -> descompactador -> parser -> SQLite -> trava de 1h do `656` -> tela Recebidas) 100% offline.
 
