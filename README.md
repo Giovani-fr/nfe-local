@@ -26,6 +26,7 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
 | **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado, enviando apenas agregados contábeis (zero XML bruto), cache em disco e franquia horária configurável. |
 | **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 180 testes automatizados. |
+| **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
 
 ---
 
@@ -54,7 +55,9 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 ## Fase 2: Notas Emitidas Contra o CNPJ (`NFeDistribuicaoDFe`) e Manuseio Seguro do Certificado A1
 
 ### 1. Segurança do Certificado Digital e-CNPJ A1 (`.pfx`)
-- **Configuração exclusivamente por variáveis de ambiente (`.env`):**
+- **Cadastro Visual na Interface Web ou via Variáveis de Ambiente (`.env`):**
+  - Pela interface web (aba **🏛️ Recebidas da SEFAZ** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`data/certificado/certificado.pfx`).
+  - Alternativamente, para servidores headless ou automação via CLI/Docker, configure via `.env`:
   ```ini
   NFE_CERT_PATH=C:/caminho/seguro/empresa_a1.pfx
   NFE_CERT_SENHA=sua-senha-do-pfx

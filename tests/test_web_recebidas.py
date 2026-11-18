@@ -355,3 +355,6 @@ class TestRotasRecebidasSEFAZ:
         assert "Recebidas da SEFAZ (DistDFe)" in html
         assert "Sincronizar com a SEFAZ" in html
         assert "Carregar Recebidas de Demonstração" in html
+        assert "Cadastrar / Trocar Certificado (.pfx)" in html
+        assert "form-cadastro-certificado" in html
+        assert "Validar e Salvar Certificado" in html

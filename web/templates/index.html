@@ -13,7 +13,7 @@
         <span class="brand-badge">NF-e / NFC-e / NFS-e</span>
         <div>
           <h1>nfe-local <span class="version-pill">v{{ version }}</span></h1>
-          <p class="subtitle">Validador fiscal, batimento financeiro em lote e gerador DANFE / DANFSe 100% local</p>
+          <p class="subtitle">Acervo fiscal unificado, validador contábil em lote, DANFE / DANFSe e sincronização SEFAZ 100% local</p>
         </div>
       </div>
       <div class="topbar-actions">
@@ -28,242 +28,340 @@
   </header>
 
   <main class="container main-content">
-    <!-- Navegação em Abas (Fase 1: Lotes | Fase 2: Recebidas SEFAZ) -->
+    <!-- Navegação Principal em Abas -->
     <nav class="tabs-nav" aria-label="Navegação principal">
       <button id="btn-tab-lotes" type="button" class="tab-btn active" data-tab="lotes">
-        📂 Analisador de Lotes (Upload)
+        📂 Acervo &amp; Analisador de Lotes (Upload)
       </button>
       <button id="btn-tab-recebidas" type="button" class="tab-btn" data-tab="recebidas">
         🏛️ Recebidas da SEFAZ (DistDFe)
       </button>
     </nav>
 
-    <!-- ABA 1: Analisador de Lotes (Upload) -->
+    <!-- ABA 1: Acervo & Lotes Fiscais (Layout em 2 Colunas: Sidebar + Workspace) -->
     <div id="aba-lotes" class="tab-panel">
-    <!-- Área de Upload Drag-and-Drop -->
-    <section class="upload-section card">
-      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Arraste arquivos XML ou ZIP aqui ou clique para selecionar">
-        <input id="file-input" type="file" multiple accept=".xml,.zip" hidden />
-        <div class="dropzone-icon">📄</div>
-        <h2>Arraste e solte arquivos <code>.xml</code> ou pacotes <code>.zip</code> aqui</h2>
-        <p>Processamento 100% offline com proteção anti-XXE, validação de CNPJ alfanumérico (NT 2014.002) e batimento de impostos.</p>
-        <div class="dropzone-buttons">
-          <button id="btn-select-files" type="button" class="btn btn-primary">
-            Selecionar Arquivos XML / ZIP
-          </button>
-          <button id="btn-demo-inline" type="button" class="btn btn-secondary">
-            Carregar Lote de Demonstração
-          </button>
-        </div>
-        <div id="upload-status" class="upload-status" aria-live="polite"></div>
-      </div>
-    </section>
-
-    <!-- Painel de Resultados do Lote (oculto até processar um lote) -->
-    <div id="painel-lote" class="hidden">
-      <!-- Barra de Ações e Exportação do Lote -->
-      <section class="lote-toolbar card">
-        <div class="lote-meta">
-          <h2>Resumo Executivo do Lote <code id="lbl-lote-id"></code></h2>
-          <span id="lbl-criado-em" class="muted"></span>
-        </div>
-        <div class="export-buttons">
-          <a id="link-export-xlsx" class="btn btn-primary" href="#" download>
-            ⬇ Baixar XLSX Completo (4 Abas)
-          </a>
-          <a id="link-export-csv" class="btn btn-secondary" href="#" download>
-            ⬇ CSV (Notas)
-          </a>
-          <a id="link-export-itens-csv" class="btn btn-secondary" href="#" download>
-            ⬇ CSV (Itens)
-          </a>
-        </div>
-      </section>
-
-      <!-- Cards de Indicadores do Lote -->
-      <section class="kpi-grid">
-        <div class="card kpi-card">
-          <span class="kpi-label">Total de Documentos</span>
-          <strong id="kpi-total-arquivos" class="kpi-value">0</strong>
-          <span id="kpi-por-tipo" class="kpi-sub"></span>
-        </div>
-        <div class="card kpi-card kpi-ok">
-          <span class="kpi-label">Válidos (Sem Erros)</span>
-          <strong id="kpi-validos" class="kpi-value">0</strong>
-          <span id="kpi-com-avisos" class="kpi-sub">0 com avisos</span>
-        </div>
-        <div class="card kpi-card kpi-danger">
-          <span class="kpi-label">Com Erros Fiscais / XML</span>
-          <strong id="kpi-com-erros" class="kpi-value">0</strong>
-          <span id="kpi-erros-fatais" class="kpi-sub">0 ilegíveis/rejeitados</span>
-        </div>
-        <div class="card kpi-card kpi-accent">
-          <span class="kpi-label">Valor Total das Notas</span>
-          <strong id="kpi-valor-total" class="kpi-value">R$ 0,00</strong>
-          <span id="kpi-valor-liquido" class="kpi-sub">Líquido: R$ 0,00</span>
-        </div>
-      </section>
-
-      <!-- Cards de Impostos Consolidados -->
-      <section class="card taxes-section">
-        <h3>Tributos Consolidados no Lote</h3>
-        <div class="taxes-grid">
-          <div class="tax-item"><span>ICMS</span><strong id="tax-icms">R$ 0,00</strong></div>
-          <div class="tax-item"><span>ICMS-ST</span><strong id="tax-icms-st">R$ 0,00</strong></div>
-          <div class="tax-item"><span>IPI</span><strong id="tax-ipi">R$ 0,00</strong></div>
-          <div class="tax-item"><span>PIS</span><strong id="tax-pis">R$ 0,00</strong></div>
-          <div class="tax-item"><span>COFINS</span><strong id="tax-cofins">R$ 0,00</strong></div>
-          <div class="tax-item"><span>ISSQN (NFS-e)</span><strong id="tax-iss">R$ 0,00</strong></div>
-          <div class="tax-item"><span>Retenções Federais</span><strong id="tax-retencoes">R$ 0,00</strong></div>
-          <div class="tax-item tax-highlight"><span>IBS / CBS (Reforma)</span><strong id="tax-ibs-cbs">R$ 0,00</strong></div>
-        </div>
-      </section>
-
-      <!-- Tabelas de Resumo por Emitente e por Período -->
-      <section class="summary-tables-grid">
-        <div class="card">
-          <h3>Totais por Emitente / Prestador</h3>
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>CNPJ / CPF</th>
-                  <th>Razão Social</th>
-                  <th>UF</th>
-                  <th class="num">Qtd</th>
-                  <th class="num">Total Notas (R$)</th>
-                  <th class="num">ICMS + IPI + ISS (R$)</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-emitentes"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>Totais por Período (Mês)</h3>
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Competência</th>
-                  <th class="num">Qtd</th>
-                  <th class="num">Produtos/Serviços (R$)</th>
-                  <th class="num">Total Notas (R$)</th>
-                  <th class="num">IBS/CBS (R$)</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-periodos"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- Seção Recolhível: Perguntar sobre o lote (Opcional — IA) -->
-      <details id="card-assistente-llm" class="card llm-card">
-        <summary class="llm-summary">
-          <div class="llm-summary-title">
-            <span>🤖 Perguntar sobre o lote (Opcional — IA)</span>
-            <span id="llm-status-badge" class="badge badge-type">Verificando status...</span>
-          </div>
-          <span id="llm-quota-counter" class="muted">Chamadas restantes: -</span>
-        </summary>
-
-        <div class="llm-body">
-          <p class="muted llm-hint">
-            Envia apenas o resumo contábil e alertas já calculados localmente em Python (nunca envia XMLs brutos). Respostas idênticas usam cache SHA-256 sem gastar franquia.
-          </p>
-
-          <div class="llm-chips">
-            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Quais notas possuem erros ou alertas?">
-              Quais notas possuem erros ou alertas?
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Qual o resumo de impostos por emitente?">
-              Qual o resumo de impostos por emitente?
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Existem notas em homologação ou sem protocolo?">
-              Existem notas em homologação ou sem protocolo?
-            </button>
-          </div>
-
-          <form id="form-pergunta-llm" class="llm-form">
-            <input
-              id="input-pergunta-llm"
-              type="text"
-              minlength="3"
-              maxlength="500"
-              placeholder="Digite uma pergunta sobre os totais, impostos ou alertas deste lote..."
-              class="input-control llm-input"
-              required
-            />
-            <button id="btn-enviar-pergunta-llm" type="submit" class="btn btn-primary">
-              Perguntar ao Assistente
-            </button>
-          </form>
-
-          <div id="llm-resposta-box" class="llm-resposta-box hidden">
-            <div class="llm-resposta-meta">
-              <strong id="llm-resposta-modelo">Modelo: -</strong>
-              <span id="llm-badge-cache" class="badge badge-ok hidden">⚡ Cache local</span>
+      <div class="workspace-grid">
+        <!-- SIDEBAR ESQUERDA: Importação Compacta + Acervo + Histórico de Lotes -->
+        <aside class="sidebar-panel">
+          <!-- Card Compacto de Importação (Dropzone) -->
+          <section class="card upload-compact-card">
+            <div id="dropzone" class="dropzone dropzone-compact" tabindex="0" role="button" aria-label="Arraste arquivos XML ou ZIP aqui ou clique para selecionar">
+              <input id="file-input" type="file" multiple accept=".xml,.zip" hidden />
+              <div class="dropzone-compact-head">
+                <span class="dropzone-icon">📥</span>
+                <div>
+                  <h2>Importar XMLs ou ZIP</h2>
+                  <p>Arraste aqui ou adicione novas notas ao acervo</p>
+                </div>
+              </div>
+              <div class="dropzone-buttons">
+                <button id="btn-select-files" type="button" class="btn btn-primary btn-block">
+                  ➕ Adicionar XMLs / ZIP
+                </button>
+                <button id="btn-demo-inline" type="button" class="btn btn-secondary btn-block">
+                  🧪 + Lote Demo
+                </button>
+              </div>
+              <div id="upload-status" class="upload-status" aria-live="polite"></div>
             </div>
-            <div id="llm-resposta-texto" class="llm-resposta-texto"></div>
+          </section>
+
+          <!-- Card de Escopo e Histórico Persistente (SQLite) -->
+          <section class="card history-sidebar-card">
+            <div class="sidebar-section-header">
+              <h3>Escopo de Visualização</h3>
+              <span id="badge-total-lotes" class="badge badge-type">0 lotes</span>
+            </div>
+
+            <!-- Item Fixo de Topo: Todo o Acervo Unificado -->
+            <button id="btn-escopo-acervo" type="button" class="scope-acervo-btn active">
+              <div class="scope-acervo-title">
+                <span>📚 Todo o Acervo Unificado</span>
+                <span class="badge badge-gold">SQLite</span>
+              </div>
+              <div id="lbl-acervo-sub" class="scope-acervo-sub">
+                Todas as notas consolidadas sem duplicar chaves
+              </div>
+            </button>
+
+            <div class="history-list-header">
+              <span>📦 Histórico de Lotes Importados</span>
+            </div>
+
+            <div id="lista-historico-lotes" class="history-list" role="list">
+              <div class="history-empty muted">Nenhum lote importado ainda.</div>
+            </div>
+
+            <div class="history-footer-actions">
+              <button id="btn-limpar-demos" type="button" class="btn btn-sm btn-secondary" title="Remove apenas os lotes de demonstração mantendo seus uploads reais">
+                🧹 Limpar Demos
+              </button>
+              <button id="btn-zerar-historico" type="button" class="btn btn-sm btn-ghost" title="Apaga todos os lotes do histórico local">
+                🗑️ Zerar Histórico
+              </button>
+            </div>
+          </section>
+        </aside>
+
+        <!-- PAINEL PRINCIPAL DIREITO -->
+        <div class="workspace-main">
+          <!-- Estado Vazio (exibido apenas quando não há nenhum lote no SQLite) -->
+          <section id="estado-vazio-lotes" class="card empty-hero-card">
+            <div class="empty-hero-icon">📂</div>
+            <h2>Seu Acervo Fiscal Local está pronto</h2>
+            <p>
+              Envie arquivos <code>.xml</code> (NF-e 55, NFC-e 65, NFS-e Padrão Nacional) ou pacotes <code>.zip</code> na barra ao lado.
+              Todos os lotes ficam salvos automaticamente no banco SQLite local — você pode fechar ou atualizar a página sem perder nada.
+            </p>
+            <div class="empty-hero-actions">
+              <button id="btn-empty-upload" type="button" class="btn btn-primary">
+                ➕ Selecionar Arquivos XML / ZIP
+              </button>
+              <button id="btn-empty-demo" type="button" class="btn btn-secondary">
+                🧪 Carregar Lote de Demonstração
+              </button>
+            </div>
+          </section>
+
+          <!-- Painel de Resultados do Escopo Ativo (Acervo ou Lote Individual) -->
+          <div id="painel-lote" class="hidden">
+            <!-- Cabeçalho do Escopo Ativo + Botões de Exportação -->
+            <section class="lote-toolbar card">
+              <div class="lote-meta">
+                <div class="scope-title-row">
+                  <span id="badge-escopo-ativo" class="badge badge-gold">ACERVO UNIFICADO</span>
+                  <h2><span id="lbl-escopo-titulo">📚 Todo o Acervo Unificado</span> <code id="lbl-lote-id"></code></h2>
+                </div>
+                <span id="lbl-criado-em" class="muted"></span>
+              </div>
+              <div class="export-buttons">
+                <a id="link-export-xlsx" class="btn btn-primary" href="#" download>
+                  ⬇ XLSX 4 Abas
+                </a>
+                <a id="link-export-csv" class="btn btn-secondary" href="#" download>
+                  ⬇ CSV Notas
+                </a>
+                <a id="link-export-itens-csv" class="btn btn-secondary" href="#" download>
+                  ⬇ CSV Itens
+                </a>
+              </div>
+            </section>
+
+            <!-- Faixa de 4 KPIs Principais -->
+            <section class="kpi-grid">
+              <div class="card kpi-card">
+                <span class="kpi-label">Total de Documentos</span>
+                <strong id="kpi-total-arquivos" class="kpi-value">0</strong>
+                <span id="kpi-por-tipo" class="kpi-sub"></span>
+              </div>
+              <div class="card kpi-card kpi-ok">
+                <span class="kpi-label">Válidos (Sem Erros)</span>
+                <strong id="kpi-validos" class="kpi-value">0</strong>
+                <span id="kpi-com-avisos" class="kpi-sub">0 com avisos</span>
+              </div>
+              <div class="card kpi-card kpi-danger">
+                <span class="kpi-label">Com Erros Fiscais / XML</span>
+                <strong id="kpi-com-erros" class="kpi-value">0</strong>
+                <span id="kpi-erros-fatais" class="kpi-sub">0 ilegíveis/rejeitados</span>
+              </div>
+              <div class="card kpi-card kpi-accent">
+                <span class="kpi-label">Valor Total das Notas</span>
+                <strong id="kpi-valor-total" class="kpi-value">R$ 0,00</strong>
+                <span id="kpi-valor-liquido" class="kpi-sub">Líquido: R$ 0,00</span>
+              </div>
+            </section>
+
+            <!-- Sub-navegação Horizontal em 3 Visões -->
+            <nav class="subtabs-nav" aria-label="Sub-visões do lote ou acervo">
+              <button id="btn-subtab-notas" type="button" class="subtab-btn active" data-subtab="notas">
+                📋 Notas Fiscais
+              </button>
+              <button id="btn-subtab-resumo" type="button" class="subtab-btn" data-subtab="resumo">
+                📊 Resumo &amp; Impostos
+              </button>
+              <button id="btn-subtab-ia" type="button" class="subtab-btn" data-subtab="ia">
+                🤖 Assistente IA
+              </button>
+            </nav>
+
+            <!-- SUB-VISÃO 1: 📋 Notas Fiscais (Padrão Ativa) -->
+            <div id="subview-notas" class="subview-panel">
+              <section class="card notes-section">
+                <div class="notes-header">
+                  <div>
+                    <h3>Documentos Fiscais Analisados</h3>
+                    <span id="lbl-contador-notas" class="muted">Exibindo 0 de 0 documentos</span>
+                  </div>
+                  <div class="filters-bar">
+                    <input
+                      id="filtro-busca"
+                      type="search"
+                      placeholder="Buscar chave, número, CNPJ, razão social ou arquivo..."
+                      class="input-control"
+                    />
+                    <select id="filtro-tipo" class="input-control">
+                      <option value="">Todos os Tipos</option>
+                      <option value="NFE">NF-e (55)</option>
+                      <option value="NFCE">NFC-e (65)</option>
+                      <option value="NFSE">NFS-e Nacional</option>
+                      <option value="RESUMO">Resumo (resNFe)</option>
+                      <option value="EVENTO">Evento</option>
+                      <option value="ERRO_XML">Erro XML / Layout</option>
+                    </select>
+                    <select id="filtro-status" class="input-control">
+                      <option value="">Todos os Status</option>
+                      <option value="validos">Somente Válidos</option>
+                      <option value="erros">Com Erros</option>
+                      <option value="avisos">Com Avisos</option>
+                    </select>
+                    <select id="filtro-emitente" class="input-control">
+                      <option value="">Todos os Emitentes</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Arquivo / Chave</th>
+                        <th>Tipo</th>
+                        <th>Número / Série</th>
+                        <th>Emitente / Prestador</th>
+                        <th>Destinatário / Tomador</th>
+                        <th class="num">Valor Total (R$)</th>
+                        <th>Validação e Alertas</th>
+                        <th>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-notas"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+            <!-- SUB-VISÃO 2: 📊 Resumo & Impostos -->
+            <div id="subview-resumo" class="subview-panel hidden">
+              <!-- Cards dos 8 Tributos Consolidados -->
+              <section class="card taxes-section">
+                <h3>Tributos Consolidados no Escopo</h3>
+                <div class="taxes-grid">
+                  <div class="tax-item"><span>ICMS</span><strong id="tax-icms">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>ICMS-ST</span><strong id="tax-icms-st">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>IPI</span><strong id="tax-ipi">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>PIS</span><strong id="tax-pis">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>COFINS</span><strong id="tax-cofins">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>ISSQN (NFS-e)</span><strong id="tax-iss">R$ 0,00</strong></div>
+                  <div class="tax-item"><span>Retenções Federais</span><strong id="tax-retencoes">R$ 0,00</strong></div>
+                  <div class="tax-item tax-highlight"><span>IBS / CBS (Reforma)</span><strong id="tax-ibs-cbs">R$ 0,00</strong></div>
+                </div>
+              </section>
+
+              <!-- Tabelas de Resumo por Emitente e por Competência -->
+              <section class="summary-tables-grid">
+                <div class="card">
+                  <div class="section-title-with-hint">
+                    <h3>Totais por Emitente / Prestador</h3>
+                    <span class="muted">Clique em um emitente para filtrar suas notas</span>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>CNPJ / CPF</th>
+                          <th>Razão Social</th>
+                          <th>UF</th>
+                          <th class="num">Qtd</th>
+                          <th class="num">Total Notas (R$)</th>
+                          <th class="num">ICMS + IPI + ISS (R$)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbody-emitentes"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <h3>Totais por Competência (Mês)</h3>
+                  <div class="table-responsive">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Competência</th>
+                          <th class="num">Qtd</th>
+                          <th class="num">Produtos/Serviços (R$)</th>
+                          <th class="num">Total Notas (R$)</th>
+                          <th class="num">IBS/CBS (R$)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbody-periodos"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <!-- SUB-VISÃO 3: 🤖 Assistente IA -->
+            <div id="subview-ia" class="subview-panel hidden">
+              <section id="card-assistente-llm" class="card llm-card">
+                <div class="llm-summary">
+                  <div class="llm-summary-title">
+                    <span>🤖 Assistente Analítico Fiscal (Opcional — IA)</span>
+                    <span id="llm-status-badge" class="badge badge-type">Verificando status...</span>
+                  </div>
+                  <span id="llm-quota-counter" class="muted">Chamadas restantes: -</span>
+                </div>
+
+                <div class="llm-body">
+                  <p class="muted llm-hint">
+                    Envia apenas o resumo contábil e alertas já calculados localmente em Python para o escopo ativo (nunca envia XMLs brutos). Respostas idênticas usam cache SHA-256 sem gastar franquia.
+                  </p>
+
+                  <div class="llm-chips">
+                    <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Quais notas possuem erros ou alertas?">
+                      Quais notas possuem erros ou alertas?
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Qual o resumo de impostos por emitente?">
+                      Qual o resumo de impostos por emitente?
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary llm-chip" data-pergunta="Existem notas em homologação ou sem protocolo?">
+                      Existem notas em homologação ou sem protocolo?
+                    </button>
+                  </div>
+
+                  <form id="form-pergunta-llm" class="llm-form">
+                    <input
+                      id="input-pergunta-llm"
+                      type="text"
+                      minlength="3"
+                      maxlength="500"
+                      placeholder="Digite uma pergunta sobre os totais, impostos ou alertas..."
+                      class="input-control llm-input"
+                      required
+                    />
+                    <button id="btn-enviar-pergunta-llm" type="submit" class="btn btn-primary">
+                      Perguntar ao Assistente
+                    </button>
+                  </form>
+
+                  <div id="llm-resposta-box" class="llm-resposta-box hidden">
+                    <div class="llm-resposta-meta">
+                      <strong id="llm-resposta-modelo">Modelo: -</strong>
+                      <span id="llm-badge-cache" class="badge badge-ok hidden">⚡ Cache local</span>
+                    </div>
+                    <div id="llm-resposta-texto" class="llm-resposta-texto"></div>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
         </div>
-      </details>
-
-      <!-- Lista Filtrável de Notas -->
-      <section class="card notes-section">
-        <div class="notes-header">
-          <h3>Documentos Analisados</h3>
-          <div class="filters-bar">
-            <input
-              id="filtro-busca"
-              type="search"
-              placeholder="Buscar por chave, número, CNPJ, emitente ou arquivo..."
-              class="input-control"
-            />
-            <select id="filtro-tipo" class="input-control">
-              <option value="">Todos os Tipos</option>
-              <option value="NFE">NF-e (55)</option>
-              <option value="NFCE">NFC-e (65)</option>
-              <option value="NFSE">NFS-e Nacional</option>
-              <option value="RESUMO">Resumo (resNFe)</option>
-              <option value="EVENTO">Evento</option>
-              <option value="ERRO_XML">Erro XML / Layout</option>
-            </select>
-            <select id="filtro-status" class="input-control">
-              <option value="">Todos os Status</option>
-              <option value="validos">Somente Válidos</option>
-              <option value="erros">Com Erros</option>
-              <option value="avisos">Com Avisos</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Arquivo / Origem</th>
-                <th>Tipo</th>
-                <th>Número / Série</th>
-                <th>Emitente / Prestador</th>
-                <th>Destinatário / Tomador</th>
-                <th class="num">Valor Total (R$)</th>
-                <th>Validação e Alertas</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="tbody-notas"></tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+      </div>
     </div>
 
     <!-- ABA 2: Recebidas da SEFAZ (NFeDistribuicaoDFe) -->
     <div id="aba-recebidas" class="tab-panel hidden">
-      <!-- Painel de Status do Certificado A1 e Cursor NSU -->
+      <!-- Painel de Status e Gestão Visual do Certificado A1 e Cursor NSU -->
       <section class="card sefaz-status-panel">
         <div class="sefaz-status-header">
           <div>
@@ -271,6 +369,9 @@
             <p class="muted">Consulta nacional por <code>ultNSU</code> em banco SQLite local com trava automática contra bloqueio <code>cStat 656</code> (1 hora).</p>
           </div>
           <div class="sefaz-actions">
+            <button id="btn-abrir-modal-cert" type="button" class="btn btn-gold">
+              ⚙️ Cadastrar / Trocar Certificado (.pfx)
+            </button>
             <button id="btn-sync-sefaz" type="button" class="btn btn-primary">
               🔄 Sincronizar com a SEFAZ
             </button>
@@ -283,24 +384,78 @@
         <div id="banner-bloqueio-656" class="sefaz-lock-banner hidden" role="alert"></div>
 
         <div class="sefaz-cards-grid">
+          <!-- Card Certificado Digital A1 + Ações Visuais -->
           <div class="sefaz-info-box">
             <div class="sefaz-info-header">
               <span>🔐 Certificado Digital ICP-Brasil A1</span>
               <span id="cert-badge-status" class="badge badge-type">Verificando...</span>
             </div>
             <div id="cert-detalhes" class="sefaz-info-body muted">
-              Inspecionando variáveis <code>NFE_CERT_PATH</code> e <code>NFE_CERT_SENHA</code>...
+              Inspecionando certificado digital A1 configurado...
+            </div>
+            <div class="sefaz-cert-controls">
+              <button id="btn-card-cadastrar-cert" type="button" class="btn btn-sm btn-secondary">
+                🔑 Selecionar Arquivo .PFX / .P12
+              </button>
+              <button id="btn-remover-cert" type="button" class="btn btn-sm btn-danger-ghost hidden">
+                🗑️ Remover Certificado
+              </button>
             </div>
           </div>
 
+          <!-- Card Cursor NSU + Seletor Rápido de Ambiente e UF -->
           <div class="sefaz-info-box">
             <div class="sefaz-info-header">
-              <span>🧭 Cursor de Sincronização (NSU)</span>
+              <span>🧭 Cursor de Sincronização (NSU) &amp; Ambiente</span>
               <span id="nsu-badge-ambiente" class="badge badge-type">Homologação (2)</span>
             </div>
             <div id="nsu-detalhes" class="sefaz-info-body">
               <div><code>ultNSU</code>: <strong id="lbl-ult-nsu">000000000000000</strong> | <code>maxNSU</code>: <strong id="lbl-max-nsu">000000000000000</strong></div>
               <div id="lbl-ultimo-retorno" class="muted" style="margin-top: 0.25rem;">Nenhuma consulta registrada.</div>
+            </div>
+            <div class="sefaz-quick-config">
+              <div class="quick-config-item">
+                <label for="quick-select-ambiente">Ambiente:</label>
+                <select id="quick-select-ambiente" class="input-control input-sm">
+                  <option value="2">2 - Homologação</option>
+                  <option value="1">1 - Produção Oficial</option>
+                </select>
+              </div>
+              <div class="quick-config-item">
+                <label for="quick-select-uf">UF Autora:</label>
+                <select id="quick-select-uf" class="input-control input-sm">
+                  <option value="35">35 - SP</option>
+                  <option value="33">33 - RJ</option>
+                  <option value="31">31 - MG</option>
+                  <option value="41">41 - PR</option>
+                  <option value="43">43 - RS</option>
+                  <option value="42">42 - SC</option>
+                  <option value="53">53 - DF</option>
+                  <option value="29">29 - BA</option>
+                  <option value="52">52 - GO</option>
+                  <option value="26">26 - PE</option>
+                  <option value="23">23 - CE</option>
+                  <option value="32">32 - ES</option>
+                  <option value="51">51 - MT</option>
+                  <option value="50">50 - MS</option>
+                  <option value="15">15 - PA</option>
+                  <option value="13">13 - AM</option>
+                  <option value="21">21 - MA</option>
+                  <option value="24">24 - RN</option>
+                  <option value="25">25 - PB</option>
+                  <option value="27">27 - AL</option>
+                  <option value="28">28 - SE</option>
+                  <option value="22">22 - PI</option>
+                  <option value="17">17 - TO</option>
+                  <option value="11">11 - RO</option>
+                  <option value="12">12 - AC</option>
+                  <option value="16">16 - AP</option>
+                  <option value="14">14 - RR</option>
+                </select>
+              </div>
+              <button id="btn-salvar-quick-config" type="button" class="btn btn-sm btn-secondary">
+                Aplicar
+              </button>
             </div>
           </div>
         </div>
@@ -406,7 +561,7 @@
     </div>
   </main>
 
-  <!-- Modal de Detalhes e Alertas da Nota -->
+  <!-- Modal Enriquecido de Detalhes, Itens e Alertas da Nota -->
   <div id="modal-detalhes" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
     <div class="modal-box card">
       <div class="modal-header">
@@ -414,6 +569,101 @@
         <button id="btn-fechar-modal" type="button" class="btn btn-ghost">✕ Fechar</button>
       </div>
       <div id="modal-conteudo" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Modal Visual de Cadastro do Certificado Digital A1 (.pfx / .p12) -->
+  <div id="modal-certificado" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-cert-titulo">
+    <div class="modal-box modal-cert-box card">
+      <div class="modal-header">
+        <h3 id="modal-cert-titulo">🔐 Configurar Certificado Digital ICP-Brasil A1</h3>
+        <button id="btn-fechar-modal-cert" type="button" class="btn btn-ghost">✕ Fechar</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted" style="margin-bottom: 1rem;">
+          O arquivo <code>.pfx</code> ou <code>.p12</code> é validado em memória com <code>cryptography</code> e armazenado exclusivamente na pasta local <code>data/certificado/</code> (ignorada pelo Git e pelo Docker). Nenhuma chave privada desencriptada é gravada em disco.
+        </p>
+
+        <form id="form-cadastro-certificado" class="cert-form-grid">
+          <div class="filter-field">
+            <label for="input-cert-arquivo">Arquivo do Certificado Digital A1 (<code>.pfx</code> ou <code>.p12</code>)</label>
+            <input
+              id="input-cert-arquivo"
+              type="file"
+              accept=".pfx,.p12"
+              class="input-control"
+              required
+            />
+          </div>
+
+          <div class="filter-field">
+            <label for="input-cert-senha">Senha do Certificado (.pfx)</label>
+            <div class="password-input-row">
+              <input
+                id="input-cert-senha"
+                type="password"
+                placeholder="Digite a senha de proteção do arquivo .pfx..."
+                class="input-control"
+                required
+              />
+              <button id="btn-revelar-senha-cert" type="button" class="btn btn-secondary">
+                👁️ Mostrar
+              </button>
+            </div>
+          </div>
+
+          <div class="cert-form-two-cols">
+            <div class="filter-field">
+              <label for="select-cert-uf">UF Autora (Código IBGE <code>cUFAutor</code>)</label>
+              <select id="select-cert-uf" class="input-control">
+                <option value="35">35 - São Paulo (SP)</option>
+                <option value="33">33 - Rio de Janeiro (RJ)</option>
+                <option value="31">31 - Minas Gerais (MG)</option>
+                <option value="41">41 - Paraná (PR)</option>
+                <option value="43">43 - Rio Grande do Sul (RS)</option>
+                <option value="42">42 - Santa Catarina (SC)</option>
+                <option value="53">53 - Distrito Federal (DF)</option>
+                <option value="29">29 - Bahia (BA)</option>
+                <option value="52">52 - Goiás (GO)</option>
+                <option value="26">26 - Pernambuco (PE)</option>
+                <option value="23">23 - Ceará (CE)</option>
+                <option value="32">32 - Espírito Santo (ES)</option>
+                <option value="51">51 - Mato Grosso (MT)</option>
+                <option value="50">50 - Mato Grosso do Sul (MS)</option>
+                <option value="15">15 - Pará (PA)</option>
+                <option value="13">13 - Amazonas (AM)</option>
+                <option value="21">21 - Maranhão (MA)</option>
+                <option value="24">24 - Rio Grande do Norte (RN)</option>
+                <option value="25">25 - Paraíba (PB)</option>
+                <option value="27">27 - Alagoas (AL)</option>
+                <option value="28">28 - Sergipe (SE)</option>
+                <option value="22">22 - Piauí (PI)</option>
+                <option value="17">17 - Tocantins (TO)</option>
+                <option value="11">11 - Rondônia (RO)</option>
+                <option value="12">12 - Acre (AC)</option>
+                <option value="16">16 - Amapá (AP)</option>
+                <option value="14">14 - Roraima (RR)</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label for="select-cert-ambiente">Ambiente da SEFAZ</label>
+              <select id="select-cert-ambiente" class="input-control">
+                <option value="2">2 - Homologação (Testes sem validade fiscal)</option>
+                <option value="1">1 - Produção (Ambiente Oficial SEFAZ)</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="cert-modal-feedback" class="cert-feedback hidden" role="status"></div>
+
+          <div class="modal-footer-actions">
+            <button id="btn-salvar-certificado" type="submit" class="btn btn-primary">
+              ✅ Validar e Salvar Certificado
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 

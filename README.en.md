@@ -26,6 +26,7 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | **FastAPI REST API + Agent-Ready CLI** | ✅ Ready | REST endpoints (`/api/lote`, `/api/recebidas`, `/exportar`) and `nfe-local analisar` / `nfe-local sincronizar-sefaz` CLI commands tested end-to-end. |
 | **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with injected HTTP client, sending only aggregated accounting summaries (zero raw XML), disk cache, and hourly quota enforcement. |
 | **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 180+ automated tests. |
+| **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
 
 ---
 
@@ -54,7 +55,9 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 ## Phase 2: Inbound Invoices (`NFeDistribuicaoDFe`) & Safe A1 Certificate Handling
 
 ### 1. Security of the ICP-Brasil e-CNPJ A1 Certificate (`.pfx`)
-- **Environment-variable configuration only (`.env`):**
+- **Visual Web UI Configuration or Environment Variables (`.env`):**
+  - Directly from the web interface (**🏛️ Recebidas da SEFAZ** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`data/certificado/certificado.pfx`).
+  - Alternatively, for headless servers or CLI/Docker automation, configure via `.env`:
   ```ini
   NFE_CERT_PATH=/secure/path/company_a1.pfx
   NFE_CERT_SENHA=your-pfx-password

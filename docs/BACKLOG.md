@@ -147,7 +147,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
   - Validar o par `.pfx + senha` em memória com `cryptography` antes de salvar, retornando imediatamente Titular, CNPJ, Emissor e Validade (dias restantes).
   - Criar endpoints `POST /api/recebidas/certificado` (upload `.pfx` + senha + UF + ambiente), `PATCH /api/recebidas/config` (alternar ambiente Homologação/Produção ou UF) e `DELETE /api/recebidas/certificado` (remover certificado do computador).
 
-- [ ] **22. Redesign Completo da Interface do Usuário (UX de Produto Real em `web/`)**
+- [x] **22. Redesign Completo da Interface do Usuário (UX de Produto Real em `web/`)**
   - Reestruturar a interface web para navegação fluida focada no usuário final:
     - **Seletor de Escopo (Histórico Lateral / Topo):** alternar com 1 clique entre **"📚 Todo o Acervo (Todas as Notas)"** e qualquer lote individual do **"📦 Histórico de Lotes Importados"** (com botão de excluir lote ou limpar demonstração), carregando automaticamente ao abrir a página (`F5` não perde nada).
     - **Importação Inteligente e Compacta:** área de upload que não ocupa metade da tela quando já há notas carregadas (botão/barra compacta `"➕ Adicionar XMLs / ZIP"` com suporte a drag-and-drop global).

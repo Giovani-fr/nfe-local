@@ -95,7 +95,11 @@ class TestInfraestruturaEDocumentacao:
     def test_backlog_completo_com_todas_as_19_tarefas_concluidas(self) -> None:
         backlog_md = (RAIZ_PROJETO / "docs" / "BACKLOG.md").read_text(encoding="utf-8")
         marcados = [linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [x]")]
-        assert len(marcados) >= 19
+        pendentes = [
+            linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [ ]")
+        ]
+        assert len(marcados) == 22
+        assert len(pendentes) == 0
 
 
 class TestBenchmarkLote:

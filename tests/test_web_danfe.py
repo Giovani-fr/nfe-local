@@ -113,6 +113,11 @@ class TestInterfaceWebEDanfeRoutes:
         html = resp_index.text
         assert "nfe-local" in html
         assert "Carregar Lote de Demonstração" in html
+        assert "Todo o Acervo Unificado" in html
+        assert "Histórico de Lotes Importados" in html
+        assert "btn-subtab-notas" in html
+        assert "btn-subtab-resumo" in html
+        assert "btn-subtab-ia" in html
         assert "/static/styles.css" in html
         assert "/static/app.js" in html
 
