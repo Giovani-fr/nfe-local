@@ -566,3 +566,137 @@ body {
   font-size: 0.88rem;
   line-height: 1.55;
 }
+
+/* Navegação em Abas (Fase 1 / Fase 2) */
+.tabs-nav {
+  display: flex;
+  gap: 0.65rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  background-color: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.6rem 1.15rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent-primary);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #2a1148, #1e3a8a);
+  color: var(--accent-gold);
+  border-color: rgba(232, 199, 122, 0.5);
+  box-shadow: var(--shadow-card);
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Painel Recebidas SEFAZ (DistDFe) */
+.sefaz-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sefaz-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sefaz-status-header h2 {
+  font-size: 1.05rem;
+  margin-bottom: 0.2rem;
+}
+
+.sefaz-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sefaz-lock-banner {
+  background-color: var(--status-err-bg);
+  color: var(--status-err);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.sefaz-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+}
+
+.sefaz-info-box {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sefaz-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.sefaz-info-body {
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.recebidas-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.9rem;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.filter-field label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

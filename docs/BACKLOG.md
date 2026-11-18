@@ -117,7 +117,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - `notas_recebidas` (`chave`, `nsu`, `schema`, `tipo`, `emitente_cnpj`, `emitente_nome`, `data_emissao`, `valor_total`, `situacao`, `manifestacao_necessaria`, `xml_gzip`, `atualizado_em`).
     - `sync_log` (`id`, `ts`, `ambiente`, `cstat`, `motivo`, `novos_docs`).
 
-- [ ] **17. Tela "Recebidas": lista filtrável por emitente, período e valor**
+- [x] **17. Tela "Recebidas": lista filtrável por emitente, período e valor**
   - Adicionar aba/tela **"Recebidas (SEFAZ)"** na interface web e rotas na API:
     - Card de status do Certificado Digital A1 (titular, CNPJ, dias para vencer) e status do cursor NSU / bloqueio `656`.
     - Botão "Sincronizar agora" (respeitando o lock e o backoff de 1h).

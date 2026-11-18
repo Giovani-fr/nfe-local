@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import math
 import re
 import threading
 import uuid
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -20,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api import __version__
 from models.fiscal import ResultadoAnalise
-from models.normalizadores import limpar_chave_acesso
+from models.normalizadores import DECIMAL_ZERO, limpar_chave_acesso
 from parsers.detector import extrair_xmls_de_zip, processar_arquivo_xml
 from parsers.xml_seguro import ErroParseXML
 from reports.assistente_lote import (
@@ -32,6 +34,32 @@ from reports.assistente_lote import (
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
+from sefaz.cert_a1 import (
+    ErroCertificadoA1,
+    MetadadosCertificado,
+    carregar_certificado_de_env,
+)
+from sefaz.controle_nsu import (
+    CSTAT_DOCS_LOCALIZADOS,
+    ErroBloqueioSEFAZ,
+    EstadoCursorNSU,
+    verificar_janela_consulta,
+)
+from sefaz.descompactador import compactar_xml_para_doc_zip_b64
+from sefaz.dist_dfe import (
+    ClienteNFeDistribuicaoDFe,
+    ErroComunicacaoSEFAZ,
+    ItemDocZip,
+    RespostaDistDFe,
+    resolver_ambiente_sefaz,
+)
+from sefaz.storage import (
+    RegistroNotaRecebida,
+    RegistroSyncLog,
+    RepositorioDistDFeSQLite,
+    ResumoExecucaoSync,
+    sincronizar_dist_dfe,
+)
 from validators.lote import criar_resultado_erro_xml, validar_lote
 
 MAX_LOTES_MEMORIA = 20
@@ -52,6 +80,13 @@ _ARQUIVOS_DEMO = (
     "nfe_55_sem_protocolo.xml",
     "nfe_55_soma_errada.xml",
     "nfe_resumo.xml",
+)
+
+_ITENS_DEMO_RECEBIDAS: tuple[tuple[str, str, str], ...] = (
+    ("000000000000001", "procNFe_v4.00.xsd", "nfe_55_valida.xml"),
+    ("000000000000002", "procNFe_v4.00.xsd", "nfe_55_cnpj_alfanumerico.xml"),
+    ("000000000000003", "resNFe_v1.01.xsd", "nfe_resumo.xml"),
+    ("000000000000004", "procEventoNFe_v1.00.xsd", "nfe_evento_cancelamento.xml"),
 )
 
 
@@ -103,6 +138,27 @@ class PerguntaLoteResponse(BaseModel):
     chamadas_restantes: int
 
 
+class StatusRecebidasSEFAZ(BaseModel):
+    """Payload de status do Certificado Digital A1, cursor NSU e logs `DistDFe`."""
+
+    certificado_configurado: bool
+    certificado: MetadadosCertificado | None = None
+    erro_certificado: str | None = None
+    ambiente: Literal[1, 2] = 2
+    cursor: EstadoCursorNSU
+    bloqueado: bool = False
+    segundos_bloqueio_restantes: int = 0
+    ultimos_logs: list[RegistroSyncLog] = Field(default_factory=list)
+
+
+class ListaNotasRecebidasResponse(BaseModel):
+    """Payload de listagem filtrável de notas recebidas via `NFeDistribuicaoDFe`."""
+
+    total: int
+    valor_total_filtrado: Decimal
+    notas: list[RegistroNotaRecebida] = Field(default_factory=list)
+
+
 class RepositorioLotesMemoria:
     """Repositório thread-safe em memória com política de descarte LRU."""
 
@@ -150,6 +206,8 @@ class RepositorioLotesMemoria:
 
 _REPOSITORIO_LOTES = RepositorioLotesMemoria()
 _SERVICO_ASSISTENTE = ServicoAssistenteLote()
+_REPOSITORIO_RECEBIDAS: RepositorioDistDFeSQLite | None = None
+_CONSULTOR_DIST_DFE: Callable[[str], RespostaDistDFe] | None = None
 
 
 def obter_repositorio_lotes() -> RepositorioLotesMemoria:
@@ -166,6 +224,26 @@ def definir_servico_assistente(servico: ServicoAssistenteLote) -> None:
     """Substitui a instância do serviço de assistente LLM (útil em testes offline)."""
     global _SERVICO_ASSISTENTE
     _SERVICO_ASSISTENTE = servico
+
+
+def obter_repositorio_recebidas() -> RepositorioDistDFeSQLite:
+    """Retorna o repositório SQLite de notas recebidas (`DistDFe`), inicializando sob demanda."""
+    global _REPOSITORIO_RECEBIDAS
+    if _REPOSITORIO_RECEBIDAS is None:
+        _REPOSITORIO_RECEBIDAS = RepositorioDistDFeSQLite()
+    return _REPOSITORIO_RECEBIDAS
+
+
+def definir_repositorio_recebidas(repo: RepositorioDistDFeSQLite | None) -> None:
+    """Substitui o repositório SQLite de notas recebidas (útil em testes com `tmp_path`)."""
+    global _REPOSITORIO_RECEBIDAS
+    _REPOSITORIO_RECEBIDAS = repo
+
+
+def definir_consultor_dist_dfe(fn: Callable[[str], RespostaDistDFe] | None) -> None:
+    """Injeta uma função `(ult_nsu) -> RespostaDistDFe` para testes offline de sincronização."""
+    global _CONSULTOR_DIST_DFE
+    _CONSULTOR_DIST_DFE = fn
 
 
 def processar_entradas_com_xml_bruto(
@@ -550,4 +628,253 @@ def perguntar_sobre_lote(lote_id: str, payload: PerguntaLoteRequest) -> Pergunta
         em_cache=resultado_llm.em_cache,
         modelo=resultado_llm.modelo,
         chamadas_restantes=resultado_llm.chamadas_restantes,
+    )
+
+
+def _calcular_estado_bloqueio(cursor: EstadoCursorNSU) -> tuple[bool, int]:
+    """Retorna `(bloqueado, segundos_restantes)` a partir de `cursor.bloqueado_ate`."""
+    if cursor.bloqueado_ate is None:
+        return False, 0
+
+    agora = datetime.now(UTC)
+    alvo = (
+        cursor.bloqueado_ate.replace(tzinfo=UTC)
+        if cursor.bloqueado_ate.tzinfo is None
+        else cursor.bloqueado_ate.astimezone(UTC)
+    )
+    if alvo <= agora:
+        return False, 0
+
+    segundos = max(1, int(math.ceil((alvo - agora).total_seconds())))
+    return True, segundos
+
+
+@app.get("/api/recebidas/status", response_model=StatusRecebidasSEFAZ)
+def status_recebidas_sefaz(
+    ambiente: int | None = Query(
+        default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
+    ),
+) -> StatusRecebidasSEFAZ:
+    """Inspeciona certificado A1, cursor `ultNSU`/`maxNSU`, trava `656` e últimos logs `DistDFe`."""
+    amb = resolver_ambiente_sefaz(ambiente)
+    repo = obter_repositorio_recebidas()
+
+    cert_configurado = False
+    metadados_cert: MetadadosCertificado | None = None
+    erro_cert: str | None = None
+    try:
+        _, _, metadados_cert = carregar_certificado_de_env()
+        cert_configurado = True
+    except ErroCertificadoA1 as exc:
+        erro_cert = str(exc)
+
+    cursor = repo.obter_cursor(ambiente=amb)
+    bloqueado, segundos_restantes = _calcular_estado_bloqueio(cursor)
+    ultimos_logs = repo.listar_logs_sync(limite=5)
+
+    return StatusRecebidasSEFAZ(
+        certificado_configurado=cert_configurado,
+        certificado=metadados_cert,
+        erro_certificado=erro_cert,
+        ambiente=amb,
+        cursor=cursor,
+        bloqueado=bloqueado,
+        segundos_bloqueio_restantes=segundos_restantes,
+        ultimos_logs=ultimos_logs,
+    )
+
+
+@app.post("/api/recebidas/sincronizar", response_model=ResumoExecucaoSync)
+def sincronizar_recebidas_sefaz(
+    ambiente: int | None = Query(
+        default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
+    ),
+) -> ResumoExecucaoSync:
+    """Executa uma rodada de sincronização `DistDFe` respeitando a trava de 1h (`656`)."""
+    amb = resolver_ambiente_sefaz(ambiente)
+    repo = obter_repositorio_recebidas()
+    cursor_atual = repo.obter_cursor(ambiente=amb)
+
+    try:
+        verificar_janela_consulta(cursor_atual)
+    except ErroBloqueioSEFAZ as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    consultar_fn = _CONSULTOR_DIST_DFE
+    if consultar_fn is None:
+        try:
+            pfx_bytes, senha, _ = carregar_certificado_de_env()
+        except ErroCertificadoA1 as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        cliente = ClienteNFeDistribuicaoDFe(
+            pfx_bytes=pfx_bytes,
+            senha=senha,
+            ambiente=amb,
+        )
+        consultar_fn = lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu)  # noqa: E731
+
+    try:
+        return sincronizar_dist_dfe(
+            consultar_fn=consultar_fn,
+            repo=repo,
+            ambiente=amb,
+        )
+    except ErroBloqueioSEFAZ as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ErroComunicacaoSEFAZ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/recebidas/demo", response_model=ResumoExecucaoSync)
+def carregar_recebidas_demo(
+    ambiente: int | None = Query(
+        default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
+    ),
+) -> ResumoExecucaoSync:
+    """Popula o banco SQLite local com um lote sintético `DistDFe` (`procNFe`/`resNFe`/evento)."""
+    amb = resolver_ambiente_sefaz(ambiente)
+    repo = obter_repositorio_recebidas()
+
+    itens_doc_zip: list[ItemDocZip] = []
+    for nsu_str, schema_xml, nome_arquivo in _ITENS_DEMO_RECEBIDAS:
+        caminho = PASTA_FIXTURES_DEMO / nome_arquivo
+        if not caminho.is_file():
+            continue
+        xml_bytes = caminho.read_bytes()
+        itens_doc_zip.append(
+            ItemDocZip(
+                nsu=nsu_str,
+                schema_xml=schema_xml,
+                conteudo_base64=compactar_xml_para_doc_zip_b64(xml_bytes),
+            )
+        )
+
+    if not itens_doc_zip:
+        raise HTTPException(
+            status_code=404,
+            detail="Fixtures sintéticas de demonstração DistDFe não encontradas.",
+        )
+
+    ultimo_nsu_demo = itens_doc_zip[-1].nsu
+    # Reinicia cursor de demonstração do ambiente para permitir recarga limpa com 1 clique
+    repo.salvar_cursor(EstadoCursorNSU(ambiente=amb))
+
+    def _consultor_demo(_ult_nsu: str) -> RespostaDistDFe:
+        return RespostaDistDFe(
+            ambiente=amb,
+            ver_aplic="DEMO-LOCAL-1.0",
+            cstat=CSTAT_DOCS_LOCALIZADOS,
+            xmotivo="Documento(s) localizado(s) (Demonstracao Local)",
+            dh_resp=datetime.now(UTC),
+            ult_nsu=ultimo_nsu_demo,
+            max_nsu=ultimo_nsu_demo,
+            lote_doc_zip=itens_doc_zip,
+        )
+
+    return sincronizar_dist_dfe(
+        consultar_fn=_consultor_demo,
+        repo=repo,
+        ambiente=amb,
+        max_paginas=1,
+    )
+
+
+@app.get("/api/recebidas", response_model=ListaNotasRecebidasResponse)
+def listar_recebidas(
+    ambiente: int | None = Query(default=None, description="Filtra por ambiente (1 ou 2)"),
+    emitente: str | None = Query(
+        default=None, description="Filtra por CNPJ ou Razão Social do emitente"
+    ),
+    data_inicio: str | None = Query(
+        default=None, description="Data inicial de emissão (YYYY-MM-DD)"
+    ),
+    data_fim: str | None = Query(default=None, description="Data final de emissão (YYYY-MM-DD)"),
+    valor_min: Decimal | None = Query(  # noqa: B008
+        default=None, description="Valor total mínimo da nota"
+    ),
+    valor_max: Decimal | None = Query(  # noqa: B008
+        default=None, description="Valor total máximo da nota"
+    ),
+    categoria: str | None = Query(
+        default=None,
+        description="Filtra por categoria (NFE_COMPLETA, RESUMO_NFE, etc.)",
+    ),
+    situacao: str | None = Query(
+        default=None,
+        description="Filtra por situação (AUTORIZADA, RESUMO, CANCELADA, etc.)",
+    ),
+) -> ListaNotasRecebidasResponse:
+    """Lista as notas recebidas armazenadas no SQLite com suporte a filtros combinados."""
+    repo = obter_repositorio_recebidas()
+    notas = repo.listar_notas_recebidas(
+        ambiente=ambiente,
+        emitente=emitente,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        valor_min=valor_min,
+        valor_max=valor_max,
+        categoria=categoria,
+        situacao=situacao,
+    )
+    soma_valores = sum((n.valor_total for n in notas), DECIMAL_ZERO)
+    return ListaNotasRecebidasResponse(
+        total=len(notas),
+        valor_total_filtrado=soma_valores,
+        notas=notas,
+    )
+
+
+@app.get("/recebidas/{chave}/espelho", response_class=HTMLResponse)
+def renderizar_espelho_nota_recebida(request: Request, chave: str) -> HTMLResponse:
+    """Renderiza o espelho DANFE/DANFSe a partir do XML descompactado no SQLite."""
+    chave_limpa = limpar_chave_acesso(chave)
+    repo = obter_repositorio_recebidas()
+    xml_bytes = repo.obter_xml_nota_recebida(chave_limpa)
+    if not xml_bytes:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Nota recebida '{chave}' não encontrada no banco SQLite local.",
+        )
+
+    resultado = processar_arquivo_xml(xml_bytes, nome_arquivo=f"{chave_limpa}.xml")
+    if resultado.documento is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível gerar espelho DANFE para o XML armazenado.",
+        )
+
+    if resultado.documento.tipo == "NFSE":
+        contexto = montar_contexto_danfse(resultado)
+        nome_template = "danfse.html"
+    else:
+        contexto = montar_contexto_danfe(resultado)
+        nome_template = "danfe.html"
+
+    contexto["lote_id"] = "recebidas"
+    contexto["identificador"] = chave_limpa
+    contexto["url_xml"] = f"/recebidas/{chave_limpa}/xml"
+    return templates.TemplateResponse(request, nome_template, contexto)
+
+
+@app.get("/recebidas/{chave}/xml")
+def baixar_xml_nota_recebida(chave: str) -> Response:
+    """Faz o download do XML descompactado de uma nota recebida armazenada no SQLite."""
+    chave_limpa = limpar_chave_acesso(chave)
+    repo = obter_repositorio_recebidas()
+    xml_bytes = repo.obter_xml_nota_recebida(chave_limpa)
+    if not xml_bytes:
+        raise HTTPException(
+            status_code=404,
+            detail=f"XML da nota recebida '{chave}' não encontrado no banco SQLite local.",
+        )
+
+    nome_seguro = re.sub(r"[^0-9A-Za-z._-]", "_", chave_limpa or "nota_recebida")
+    if not nome_seguro.lower().endswith(".xml"):
+        nome_seguro = f"{nome_seguro}.xml"
+
+    return Response(
+        content=xml_bytes,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{nome_seguro}"'},
     )

@@ -204,7 +204,7 @@
       </div>
       <div>
         <button type="button" class="btn-acao" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-        <a class="btn-acao sec" href="/lote/{{ lote_id }}/nota/{{ identificador }}/xml" download>⬇ Baixar XML Original</a>
+        <a class="btn-acao sec" href="{{ url_xml | default('/lote/' ~ lote_id ~ '/nota/' ~ identificador ~ '/xml') }}" download>⬇ Baixar XML Original</a>
       </div>
     </div>
     {% if alertas %}

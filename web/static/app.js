@@ -384,9 +384,299 @@
     }
   };
 
+  // --- Fase 2: Recebidas da SEFAZ (NFeDistribuicaoDFe) ---
+  const definirStatusRecebidas = (msg, erro = false) => {
+    const el = document.getElementById("recebidas-sync-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = erro ? "var(--status-err)" : "var(--accent-gold)";
+  };
+
+  const alternarAba = (nomeAba) => {
+    const abaLotes = document.getElementById("aba-lotes");
+    const abaRecebidas = document.getElementById("aba-recebidas");
+    const btnLotes = document.getElementById("btn-tab-lotes");
+    const btnRecebidas = document.getElementById("btn-tab-recebidas");
+    if (!abaLotes || !abaRecebidas || !btnLotes || !btnRecebidas) return;
+
+    if (nomeAba === "recebidas") {
+      abaLotes.classList.add("hidden");
+      abaRecebidas.classList.remove("hidden");
+      btnLotes.classList.remove("active");
+      btnRecebidas.classList.add("active");
+      carregarStatusRecebidas();
+      carregarListaRecebidas();
+    } else {
+      abaRecebidas.classList.add("hidden");
+      abaLotes.classList.remove("hidden");
+      btnRecebidas.classList.remove("active");
+      btnLotes.classList.add("active");
+    }
+  };
+
+  const carregarStatusRecebidas = async () => {
+    const badgeCert = document.getElementById("cert-badge-status");
+    const detalhesCert = document.getElementById("cert-detalhes");
+    const badgeAmb = document.getElementById("nsu-badge-ambiente");
+    const lblUltNsu = document.getElementById("lbl-ult-nsu");
+    const lblMaxNsu = document.getElementById("lbl-max-nsu");
+    const lblUltRet = document.getElementById("lbl-ultimo-retorno");
+    const bannerBloqueio = document.getElementById("banner-bloqueio-656");
+    const btnSync = document.getElementById("btn-sync-sefaz");
+
+    if (!badgeCert || !detalhesCert) return;
+
+    try {
+      const resp = await fetch("/api/recebidas/status");
+      if (!resp.ok) return;
+      const st = await resp.json();
+
+      if (st.certificado_configurado && st.certificado) {
+        const c = st.certificado;
+        if (c.vencido) {
+          badgeCert.className = "badge badge-err";
+          badgeCert.textContent = "Certificado Vencido";
+        } else {
+          badgeCert.className = "badge badge-ok";
+          badgeCert.textContent = `Configurado (${c.dias_para_vencer} dias restantes)`;
+        }
+        const dtValidade = c.valido_ate ? new Date(c.valido_ate).toLocaleDateString("pt-BR") : "-";
+        detalhesCert.innerHTML = `
+          <div><strong>Titular:</strong> ${escaparHtml(c.titular)}</div>
+          <div><strong>CNPJ:</strong> <code>${escaparHtml(fmtDoc(c.documento))}</code> | <strong>Válido até:</strong> ${escaparHtml(dtValidade)}</div>
+        `;
+      } else {
+        badgeCert.className = "badge badge-warn";
+        badgeCert.textContent = "Não Configurado";
+        detalhesCert.innerHTML = `
+          <div>${escaparHtml(st.erro_certificado || "Configure NFE_CERT_PATH e NFE_CERT_SENHA no arquivo .env para consultar a SEFAZ.")}</div>
+          <div class="muted" style="margin-top:0.2rem;">Dica: use o botão <strong>"🧪 Carregar Recebidas de Demonstração"</strong> para testar os filtros sem certificado.</div>
+        `;
+      }
+
+      if (badgeAmb) {
+        badgeAmb.textContent = st.ambiente === 1 ? "Produção (1)" : "Homologação (2)";
+      }
+      if (lblUltNsu && st.cursor) lblUltNsu.textContent = st.cursor.ultimo_nsu;
+      if (lblMaxNsu && st.cursor) lblMaxNsu.textContent = st.cursor.max_nsu;
+
+      if (lblUltRet && st.cursor) {
+        if (st.cursor.ultimo_cstat) {
+          const dtCons = st.cursor.ultima_consulta
+            ? new Date(st.cursor.ultima_consulta).toLocaleString("pt-BR")
+            : "-";
+          lblUltRet.textContent = `Último retorno: cStat ${st.cursor.ultimo_cstat} (${st.cursor.ultimo_motivo || "-"}) em ${dtCons}`;
+        } else {
+          lblUltRet.textContent = "Nenhuma consulta realizada ainda neste ambiente.";
+        }
+      }
+
+      if (bannerBloqueio) {
+        if (st.bloqueado) {
+          const minRest = Math.max(1, Math.ceil((st.segundos_bloqueio_restantes || 0) / 60));
+          const dtAte = st.cursor?.bloqueado_ate
+            ? new Date(st.cursor.bloqueado_ate).toLocaleTimeString("pt-BR")
+            : "";
+          bannerBloqueio.classList.remove("hidden");
+          bannerBloqueio.innerHTML = `
+            ⛔ <strong>Trava obrigatória SEFAZ ativa (cStat 656 — Consumo Indevido):</strong>
+            aguarde ~${minRest} min (até ${escaparHtml(dtAte)}) antes de sincronizar novamente para não reiniciar o bloqueio de 1 hora na SEFAZ.
+          `;
+          if (btnSync) btnSync.disabled = true;
+        } else {
+          bannerBloqueio.classList.add("hidden");
+          if (btnSync) btnSync.disabled = false;
+        }
+      }
+    } catch (_) {
+      badgeCert.className = "badge badge-type";
+      badgeCert.textContent = "Indisponível";
+    }
+  };
+
+  const renderizarBadgesRecebida = (nota) => {
+    const badges = [];
+    if (nota.situacao === "AUTORIZADA") {
+      badges.push('<span class="badge badge-ok">AUTORIZADA</span>');
+    } else if (nota.situacao === "CANCELADA") {
+      badges.push('<span class="badge badge-err">CANCELADA</span>');
+    } else if (nota.situacao === "RESUMO") {
+      badges.push('<span class="badge badge-warn">RESUMO (resNFe)</span>');
+    } else {
+      badges.push(`<span class="badge badge-type">${escaparHtml(nota.situacao)}</span>`);
+    }
+
+    if (nota.manifestacao_necessaria) {
+      badges.push(
+        '<span class="badge badge-warn" title="Registre Ciência da Operação (210210) para baixar o procNFe completo">⚠️ Exige Manifestação (210210)</span>'
+      );
+    }
+    return badges.join(" ");
+  };
+
+  const carregarListaRecebidas = async () => {
+    const tbody = document.getElementById("tbody-recebidas");
+    if (!tbody) return;
+
+    const params = new URLSearchParams();
+    const emitente = (document.getElementById("rec-filtro-emitente")?.value || "").trim();
+    const dtInicio = (document.getElementById("rec-filtro-data-inicio")?.value || "").trim();
+    const dtFim = (document.getElementById("rec-filtro-data-fim")?.value || "").trim();
+    const vMin = (document.getElementById("rec-filtro-valor-min")?.value || "").trim();
+    const vMax = (document.getElementById("rec-filtro-valor-max")?.value || "").trim();
+    const categoria = (document.getElementById("rec-filtro-categoria")?.value || "").trim();
+    const situacao = (document.getElementById("rec-filtro-situacao")?.value || "").trim();
+
+    if (emitente) params.set("emitente", emitente);
+    if (dtInicio) params.set("data_inicio", dtInicio);
+    if (dtFim) params.set("data_fim", dtFim);
+    if (vMin) params.set("valor_min", vMin);
+    if (vMax) params.set("valor_max", vMax);
+    if (categoria) params.set("categoria", categoria);
+    if (situacao) params.set("situacao", situacao);
+
+    const qs = params.toString();
+    const url = qs ? `/api/recebidas?${qs}` : "/api/recebidas";
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const dados = await resp.json();
+
+      const kpiTotal = document.getElementById("rec-kpi-total");
+      const kpiValor = document.getElementById("rec-kpi-valor");
+      if (kpiTotal) kpiTotal.textContent = String(dados.total || 0);
+      if (kpiValor) kpiValor.textContent = fmtMoedaRS(dados.valor_total_filtrado || 0);
+
+      const notas = dados.notas || [];
+      if (notas.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="7" style="text-align:center;" class="muted">Nenhuma nota recebida encontrada para os filtros selecionados.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = notas
+        .map((n) => {
+          const dtEmi = n.data_emissao
+            ? new Date(n.data_emissao).toLocaleDateString("pt-BR")
+            : "-";
+          const numSerie = n.numero ? `${n.numero} / ${n.serie || "-"}` : "Resumo s/ número";
+          const chaveUrl = encodeURIComponent(n.chave);
+          return `
+            <tr>
+              <td><code>${escaparHtml(n.nsu)}</code></td>
+              <td>${escaparHtml(dtEmi)}</td>
+              <td>
+                <strong>${escaparHtml(numSerie)}</strong>
+                <br/><code class="muted">${escaparHtml(n.chave)}</code>
+              </td>
+              <td>
+                <strong>${escaparHtml(n.emitente_nome || "-")}</strong>
+                <br/><span class="muted">${escaparHtml(fmtDoc(n.emitente_documento))}</span>
+              </td>
+              <td class="num"><strong>${fmtMoeda(n.valor_total)}</strong></td>
+              <td>${renderizarBadgesRecebida(n)}</td>
+              <td>
+                <div class="row-actions">
+                  <a class="btn btn-sm btn-primary" href="/recebidas/${chaveUrl}/espelho" target="_blank" rel="noopener">
+                    Espelho DANFE
+                  </a>
+                  <a class="btn btn-sm btn-ghost" href="/recebidas/${chaveUrl}/xml" download>
+                    Baixar XML
+                  </a>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+    } catch (err) {
+      definirStatusRecebidas(`Erro ao listar notas recebidas: ${err.message}`, true);
+    }
+  };
+
+  const sincronizarComSefaz = async () => {
+    definirStatusRecebidas("Sincronizando com o Ambiente Nacional da SEFAZ (NFeDistribuicaoDFe)...");
+    try {
+      const resp = await fetch("/api/recebidas/sincronizar", { method: "POST" });
+      const dados = await resp.json();
+      if (!resp.ok) {
+        definirStatusRecebidas(dados.detail || `Falha na sincronização (HTTP ${resp.status}).`, true);
+        await carregarStatusRecebidas();
+        return;
+      }
+      definirStatusRecebidas(
+        `Sincronização concluída: ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s).`
+      );
+      await carregarStatusRecebidas();
+      await carregarListaRecebidas();
+    } catch (err) {
+      definirStatusRecebidas(`Erro de comunicação: ${err.message}`, true);
+    }
+  };
+
+  const carregarRecebidasDemo = async () => {
+    definirStatusRecebidas("Carregando lote sintético DistDFe no SQLite local...");
+    try {
+      const resp = await fetch("/api/recebidas/demo", { method: "POST" });
+      const dados = await resp.json();
+      if (!resp.ok) {
+        definirStatusRecebidas(dados.detail || "Falha ao carregar demonstração DistDFe.", true);
+        return;
+      }
+      definirStatusRecebidas(
+        `Demonstração DistDFe carregada (${dados.documentos_processados} docZip processados, ultNSU=${dados.cursor.ultimo_nsu}).`
+      );
+      await carregarStatusRecebidas();
+      await carregarListaRecebidas();
+    } catch (err) {
+      definirStatusRecebidas(`Erro ao carregar demonstração: ${err.message}`, true);
+    }
+  };
+
+  const limparFiltrosRecebidas = () => {
+    [
+      "rec-filtro-emitente",
+      "rec-filtro-data-inicio",
+      "rec-filtro-data-fim",
+      "rec-filtro-valor-min",
+      "rec-filtro-valor-max",
+      "rec-filtro-categoria",
+      "rec-filtro-situacao",
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    carregarListaRecebidas();
+  };
+
   document.addEventListener("DOMContentLoaded", () => {
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("file-input");
+
+    const btnTabLotes = document.getElementById("btn-tab-lotes");
+    const btnTabRecebidas = document.getElementById("btn-tab-recebidas");
+    if (btnTabLotes && btnTabRecebidas) {
+      btnTabLotes.addEventListener("click", () => alternarAba("lotes"));
+      btnTabRecebidas.addEventListener("click", () => alternarAba("recebidas"));
+    }
+
+    const btnSyncSefaz = document.getElementById("btn-sync-sefaz");
+    if (btnSyncSefaz) btnSyncSefaz.addEventListener("click", sincronizarComSefaz);
+
+    const btnDemoRec = document.getElementById("btn-demo-recebidas");
+    if (btnDemoRec) btnDemoRec.addEventListener("click", carregarRecebidasDemo);
+
+    const formFiltrosRec = document.getElementById("form-filtros-recebidas");
+    if (formFiltrosRec) {
+      formFiltrosRec.addEventListener("submit", (e) => {
+        e.preventDefault();
+        carregarListaRecebidas();
+      });
+    }
+
+    const btnLimparRec = document.getElementById("btn-rec-limpar");
+    if (btnLimparRec) btnLimparRec.addEventListener("click", limparFiltrosRecebidas);
 
     document.getElementById("btn-select-files").addEventListener("click", (e) => {
       e.stopPropagation();

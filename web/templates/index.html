@@ -28,6 +28,18 @@
   </header>
 
   <main class="container main-content">
+    <!-- Navegação em Abas (Fase 1: Lotes | Fase 2: Recebidas SEFAZ) -->
+    <nav class="tabs-nav" aria-label="Navegação principal">
+      <button id="btn-tab-lotes" type="button" class="tab-btn active" data-tab="lotes">
+        📂 Analisador de Lotes (Upload)
+      </button>
+      <button id="btn-tab-recebidas" type="button" class="tab-btn" data-tab="recebidas">
+        🏛️ Recebidas da SEFAZ (DistDFe)
+      </button>
+    </nav>
+
+    <!-- ABA 1: Analisador de Lotes (Upload) -->
+    <div id="aba-lotes" class="tab-panel">
     <!-- Área de Upload Drag-and-Drop -->
     <section class="upload-section card">
       <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Arraste arquivos XML ou ZIP aqui ou clique para selecionar">
@@ -243,6 +255,151 @@
               </tr>
             </thead>
             <tbody id="tbody-notas"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    </div>
+
+    <!-- ABA 2: Recebidas da SEFAZ (NFeDistribuicaoDFe) -->
+    <div id="aba-recebidas" class="tab-panel hidden">
+      <!-- Painel de Status do Certificado A1 e Cursor NSU -->
+      <section class="card sefaz-status-panel">
+        <div class="sefaz-status-header">
+          <div>
+            <h2>Sincronização de Notas Emitidas Contra o CNPJ (<code>NFeDistribuicaoDFe</code>)</h2>
+            <p class="muted">Consulta nacional por <code>ultNSU</code> em banco SQLite local com trava automática contra bloqueio <code>cStat 656</code> (1 hora).</p>
+          </div>
+          <div class="sefaz-actions">
+            <button id="btn-sync-sefaz" type="button" class="btn btn-primary">
+              🔄 Sincronizar com a SEFAZ
+            </button>
+            <button id="btn-demo-recebidas" type="button" class="btn btn-secondary">
+              🧪 Carregar Recebidas de Demonstração
+            </button>
+          </div>
+        </div>
+
+        <div id="banner-bloqueio-656" class="sefaz-lock-banner hidden" role="alert"></div>
+
+        <div class="sefaz-cards-grid">
+          <div class="sefaz-info-box">
+            <div class="sefaz-info-header">
+              <span>🔐 Certificado Digital ICP-Brasil A1</span>
+              <span id="cert-badge-status" class="badge badge-type">Verificando...</span>
+            </div>
+            <div id="cert-detalhes" class="sefaz-info-body muted">
+              Inspecionando variáveis <code>NFE_CERT_PATH</code> e <code>NFE_CERT_SENHA</code>...
+            </div>
+          </div>
+
+          <div class="sefaz-info-box">
+            <div class="sefaz-info-header">
+              <span>🧭 Cursor de Sincronização (NSU)</span>
+              <span id="nsu-badge-ambiente" class="badge badge-type">Homologação (2)</span>
+            </div>
+            <div id="nsu-detalhes" class="sefaz-info-body">
+              <div><code>ultNSU</code>: <strong id="lbl-ult-nsu">000000000000000</strong> | <code>maxNSU</code>: <strong id="lbl-max-nsu">000000000000000</strong></div>
+              <div id="lbl-ultimo-retorno" class="muted" style="margin-top: 0.25rem;">Nenhuma consulta registrada.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="recebidas-sync-status" class="upload-status" aria-live="polite"></div>
+      </section>
+
+      <!-- Barra de Filtros Completa de Notas Recebidas -->
+      <section class="card notes-section">
+        <div class="notes-header">
+          <div>
+            <h3>Notas Fiscais Recebidas (SQLite Local)</h3>
+            <span class="muted">
+              Exibindo <strong id="rec-kpi-total">0</strong> documento(s) | Soma filtrada: <strong id="rec-kpi-valor">R$ 0,00</strong>
+            </span>
+          </div>
+        </div>
+
+        <form id="form-filtros-recebidas" class="recebidas-filters-grid">
+          <div class="filter-field">
+            <label for="rec-filtro-emitente">Emitente (CNPJ ou Razão Social)</label>
+            <input
+              id="rec-filtro-emitente"
+              type="search"
+              placeholder="Ex.: 11.222.333/0001-81 ou ALFA..."
+              class="input-control"
+            />
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-data-inicio">Período: De (Data Início)</label>
+            <input id="rec-filtro-data-inicio" type="date" class="input-control" />
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-data-fim">Até (Data Fim)</label>
+            <input id="rec-filtro-data-fim" type="date" class="input-control" />
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-valor-min">Valor Mínimo (R$)</label>
+            <input
+              id="rec-filtro-valor-min"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0,00"
+              class="input-control"
+            />
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-valor-max">Valor Máximo (R$)</label>
+            <input
+              id="rec-filtro-valor-max"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="999999,99"
+              class="input-control"
+            />
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-categoria">Categoria</label>
+            <select id="rec-filtro-categoria" class="input-control">
+              <option value="">Todas</option>
+              <option value="NFE_COMPLETA">Completa (procNFe)</option>
+              <option value="RESUMO_NFE">Resumo (resNFe)</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-situacao">Situação</label>
+            <select id="rec-filtro-situacao" class="input-control">
+              <option value="">Todas</option>
+              <option value="AUTORIZADA">AUTORIZADA</option>
+              <option value="RESUMO">RESUMO</option>
+              <option value="CANCELADA">CANCELADA</option>
+            </select>
+          </div>
+          <div class="filter-actions">
+            <button id="btn-rec-filtrar" type="submit" class="btn btn-primary">
+              Filtrar
+            </button>
+            <button id="btn-rec-limpar" type="button" class="btn btn-ghost">
+              Limpar Filtros
+            </button>
+          </div>
+        </form>
+
+        <div class="table-responsive" style="margin-top: 1rem;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>NSU</th>
+                <th>Emissão</th>
+                <th>Número / Série</th>
+                <th>Emitente</th>
+                <th class="num">Valor Total (R$)</th>
+                <th>Situação / Manifestação</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-recebidas"></tbody>
           </table>
         </div>
       </section>
