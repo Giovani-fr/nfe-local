@@ -22,7 +22,9 @@ O Swagger **não traz `servers`**; os caminhos são relativos. Como a documenta�
 | Produção | `https://adn.nfse.gov.br/contribuintes` |
 
 > **Não confirmado:** que o prefixo `/contribuintes` faz parte da URL da API (e não só da
-> documentação). A primeira chamada real confirma; o código concentra isso em duas constantes.
+> documentação). A primeira chamada real confirma. Se estiver errado, a URL é configurável sem
+> mexer no código: variável `NFE_ADN_URL_BASE` ou `--url-base` na CLI (precisa começar com
+> `https://`; a opção vale mais que a variável, que vale mais que o padrão do ambiente).
 > A produção foi assumida com o mesmo contrato da produção restrita (o Swagger dela não foi baixado).
 
 ## Autenticação
@@ -58,7 +60,7 @@ Respostas documentadas (o Swagger declara o content-type como `text/plain`, mas 
 | :--- | :--- |
 | 200 | `DOCUMENTOS_LOCALIZADOS`: documentos em `LoteDFe`. |
 | 400 | `REJEICAO`: motivos em `Erros`. |
-| 404 | `NENHUM_DOCUMENTO_LOCALIZADO`: **não é falha**, é o fim da fila (E2220/E2230). |
+| 404 | `NENHUM_DOCUMENTO_LOCALIZADO`: **não é falha**, é o fim da fila (E2220/E2230). **Só** vale se o corpo for JSON válido com esse `StatusProcessamento` ou um desses códigos; 404 vazio, HTML ou JSON de outro tipo é tratado como endereço errado (categoria `ENDERECO`, encerra como `ERRO`). |
 
 Não há resposta documentada para 429/503 nem campo de bloqueio/limite de uso: ver "Divergências".
 
@@ -139,3 +141,14 @@ Item de `LoteDFe` (`DistribuicaoNSU`):
 ## Como testar a chamada real (não feito aqui)
 
 Ver o resumo da tarefa 27 no `docs/BACKLOG.md`.
+
+## Diagnóstico (`nfe-local sincronizar-adn --diagnostico`)
+
+Faz **uma** consulta somente leitura a `GET /DFe/0` com o certificado cadastrado. Não abre nem cria
+o banco, não altera o cursor e não imprime XML, senha nem bytes do `.pfx`. Aceita `--ambiente`,
+`--url-base` e `--json`. Mostra: ambiente, URL base, CNPJ de consulta mascarado (2 primeiros e 2
+últimos), validade do certificado, resultado da conexão TLS, HTTP status, `StatusProcessamento`,
+`TipoConsulta`, `Codigo`/`Descricao` de erros e alertas (CNPJ/CPF dentro das descrições são
+mascarados) e a contagem de itens por `TipoDocumento`. Saída 0 quando a consulta funcionou
+(documentos ou fila vazia) e 1 nos demais casos. Use-o para separar problema de URL, de TLS/certificado
+e de CNPJ de consulta antes de sincronizar.
