@@ -52,10 +52,10 @@ A aba **SEFAZ e ADN** mostra o que foi buscado automaticamente (Tipo, Origem, Pa
 | **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto | Testado via `TestClient` com código de barras SVG puro (Code 128-C e 128-B), QR Code SVG puro no DANFSe e marca d'água para homologação. |
 | **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
 | **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado. **Por padrão envia só agregados contábeis anonimizados** (emitentes como "Emitente 01", sem razão social, CNPJ nem amostra de notas); `LLM_ENVIAR_IDENTIFICADORES=1` e `LLM_ENVIAR_AMOSTRA=1` liberam, respectivamente, nomes/CNPJ reais e a amostra de até 30 notas. Testes provam que, no modo padrão, nenhum identificador aparece no que seria enviado. Cache em disco e franquia horária. Veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade). |
-| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 200 testes automatizados. |
+| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 440 testes automatizados na suíte atual. |
 | **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
 | **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
-| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ⚠️ Validado em parte | **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas** (papéis tomador e intermediário, sem erro de processamento). Houve falhas de conexão intermitentes, hoje tratadas com repetição automática. **Não validado:** a sincronização **completa** (todas as páginas) em produção. |
+| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ✅ Validado em uso real | **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas**; e a sincronização **completa** em produção (**19/11/2026**) percorreu **10 páginas**, zerou a fila e gravou **411 documentos (391 NFS-e novas e 20 eventos)**, com os papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. Houve falhas de conexão intermitentes em tentativas anteriores, hoje tratadas com repetição automática. **Ressalva:** o papel de **intermediário** vem de uma leitura do XML (`<interm>`) que o Swagger não confirma. |
 
 ---
 
@@ -169,7 +169,7 @@ O **ADN** (Ambiente de Dados Nacional da NFS-e) distribui as NFS-e do Padrão Na
 3. **Sincronização de uma página:** `nfe-local sincronizar-adn --max-paginas 1 --db <um banco de teste>`.
 4. **Sincronização completa:** `nfe-local sincronizar-adn` (ou **Sincronizar NFS-e (ADN)** / **Sincronizar tudo** no painel). Se parar por `LIMITE_PAGINAS`, rode de novo: continua do cursor.
 
-> **O que já foi (e o que não foi) testado em uso real:** diagnóstico nos dois ambientes e a sincronização de **uma página** em produção (50 NFS-e novas, sem erro de processamento). A sincronização **completa** em produção **ainda não foi confirmada**.
+> **O que já foi testado em uso real (19/11/2026):** o diagnóstico nos dois ambientes, a sincronização de **uma página** em produção (50 NFS-e novas) e a sincronização **completa** em produção: 10 páginas, fila zerada, 411 documentos (391 NFS-e novas e 20 eventos), papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. O papel de intermediário vem de uma leitura do XML que o Swagger não confirma.
 
 ### Política de espera e de repetição
 
@@ -345,7 +345,7 @@ flowchart LR
 3. **Certificados A3 (Token USB / Smartcard) Não Suportados:**
    - O módulo `NFeDistribuicaoDFe` suporta exclusivamente **Certificado Digital A1 (`.pfx` / PKCS#12)** lido em memória. Certificados A3 em hardware criptográfico via PKCS#11 não fazem parte do escopo.
 4. **ADN (NFS-e): o que ainda não foi comprovado ou não é suportado:**
-   - A sincronização **completa** em produção ainda não foi confirmada (só o diagnóstico e uma página). O Swagger de produção não foi baixado. A consulta é do **CNPJ do certificado** (`cnpjConsulta`; procuração e `cpfConsulta` não foram implementados nem testados).
+   - A sincronização completa em produção foi confirmada em uso real (19/11/2026), mas o Swagger de produção não foi baixado e o papel de **intermediário** vem de uma leitura do XML (`<interm>`) não confirmada no Swagger. A consulta é do **CNPJ do certificado** (`cnpjConsulta`; procuração e `cpfConsulta` não foram implementados nem testados).
    - Na visão **Tudo**, as notas do SEFAZ/ADN entram sem revalidação e sem itens/impostos por item.
    - O `NFeDistribuicaoDFe` não é a fonte para NFC-e; para NF-e **emitidas pelo próprio CNPJ** a entrega pela SEFAZ não foi confirmada: use upload.
 
@@ -412,7 +412,7 @@ Nesta tabela, **"Tipo"** separa o que foi só **decisão de projeto** do que foi
 ruff check .
 ruff format --check .
 
-# Executar toda a suíte de testes automatizados (200+ testes 100% offline)
+# Executar toda a suíte de testes automatizados (440+ testes 100% offline)
 pytest -v
 ```
 

@@ -25,8 +25,11 @@ O Swagger **não traz `servers`**; os caminhos são relativos. Como a documenta�
 > --diagnostico`) funcionou nos **dois** ambientes com essas bases, ou seja, o prefixo
 > `/contribuintes` faz parte da URL da API. Em produção: TLS ok, HTTP 200,
 > `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta = CnpjBase` e 50 itens no primeiro lote. Houve uma falha de
-> conexão transitória numa tentativa anterior, de causa não identificada. **A sincronização completa
-> (várias páginas, gravação no banco) ainda não foi confirmada em produção pelo usuário.** A URL
+> conexão transitória numa tentativa anterior, de causa não identificada. **A sincronização
+> completa em produção foi confirmada em uso real em 19/11/2026:** 10 páginas, fila zerada, 411 documentos (391
+> NFS-e novas e 20 eventos), com os papéis prestador, tomador e intermediário, sem erro de processamento
+> e sem falhas de conexão na rodada. O papel de **intermediário** vem de uma leitura do XML (`<interm>`)
+> que o Swagger não confirma. A URL
 > continua configurável sem mexer no código: variável `NFE_ADN_URL_BASE` ou `--url-base` na CLI (precisa começar com
 > `https://`; a opção vale mais que a variável, que vale mais que o padrão do ambiente).
 > O Swagger de produção não foi baixado: o contrato de produção foi assumido igual ao da produção

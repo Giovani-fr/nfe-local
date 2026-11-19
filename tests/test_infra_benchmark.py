@@ -126,7 +126,10 @@ class TestInfraestruturaEDocumentacao:
             assert "NFC-e" in txt
             # a tabela de escopo e a ressalva sobre a sincronização completa
             assert ("Somente upload" in txt) or ("Upload only" in txt)
-            assert ("ainda não foi confirmada" in txt) or ("not confirmed yet" in txt)
+            # sincronização completa confirmada em uso real, com a ressalva do intermediário
+            assert "411" in txt and "391" in txt
+            assert ("ainda não foi confirmada" not in txt) and ("not confirmed yet" not in txt)
+            assert ("não confirma" in txt) or ("does not confirm" in txt)
             assert "Notas Emitidas Contra o CNPJ" not in txt
 
     def test_backlog_tarefas_1_a_25_e_27_concluidas_e_28_aberta(self) -> None:
