@@ -200,8 +200,41 @@ def analisar_falha_conexao(exc: BaseException) -> FalhaConexao:
     )
 
 
-def mensagem_falha_conexao(falha: FalhaConexao) -> str:
-    return f"Falha de conexão com o ADN (etapa: {falha.etapa}). {falha.orientacao}"
+def mensagem_falha_conexao(falha: FalhaConexao, tentativas: int | None = None) -> str:
+    """Texto para falha de conexão: 1) falha intermitente é comum, 2) rede/certificado."""
+    primeira = f"Falha de conexão com o ADN (etapa: {falha.etapa}; {falha.excecao_raiz}). "
+    primeira += "Falhas intermitentes do ADN são comuns. "
+    if tentativas:
+        vezes = "vez" if tentativas == 1 else "vezes"
+        primeira += f"O programa já tentou {tentativas} {vezes}. "
+    primeira += "Vale tentar de novo em alguns minutos."
+    return f"{primeira} Se continuar: {falha.orientacao}"
+
+
+TENTATIVAS_PADRAO = 3
+TENTATIVAS_MAXIMO = 5
+VARIAVEL_TENTATIVAS = "NFE_ADN_TENTATIVAS"
+# Espera crescente (segundos) antes da 2ª, 3ª, 4ª... tentativa; a última se repete.
+ESPERAS_RETENTATIVA_PADRAO: tuple[float, ...] = (2.0, 5.0, 10.0)
+
+
+def resolver_tentativas(explicita: int | None = None) -> int:
+    """Tentativas por consulta (1 a 5): argumento, `NFE_ADN_TENTATIVAS` ou 3."""
+    bruto: int | str | None = explicita
+    if bruto is None:
+        bruto = os.environ.get(VARIAVEL_TENTATIVAS, "").strip() or None
+    if bruto is None:
+        return TENTATIVAS_PADRAO
+    try:
+        valor = int(bruto)
+    except (TypeError, ValueError):
+        valor = 0
+    if not 1 <= valor <= TENTATIVAS_MAXIMO:
+        raise ValueError(
+            f"O número de tentativas deve ser um inteiro de 1 a {TENTATIVAS_MAXIMO} "
+            f"(--tentativas ou {VARIAVEL_TENTATIVAS})."
+        )
+    return valor
 
 
 class ErroADN(Exception):

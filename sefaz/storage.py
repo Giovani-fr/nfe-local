@@ -161,6 +161,8 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("notas_recebidas", "origem", "TEXT NOT NULL DEFAULT 'DISTDFE'"),
     ("notas_recebidas", "papel", "TEXT"),
     ("sync_log", "origem", "TEXT NOT NULL DEFAULT 'NFE'"),
+    ("sync_log", "tentativas", "INTEGER NOT NULL DEFAULT 1"),
+    ("sync_log", "falhas_conexao", "TEXT"),
 )
 _INDICES_NOVOS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_notas_recebidas_origem ON notas_recebidas(origem)",
@@ -225,6 +227,8 @@ class RegistroSyncLog(BaseModel):
     novos_docs: int = 0
     ultimo_nsu: str = "000000000000000"
     origem: str = "NFE"
+    tentativas: int = 1
+    falhas_conexao: str = ""
 
 
 class ResumoExecucaoSync(BaseModel):
@@ -910,6 +914,8 @@ class RepositorioDistDFeSQLite:
         ultimo_nsu: str,
         ts: datetime | None = None,
         origem: Literal["NFE", "NFSE"] = "NFE",
+        tentativas: int = 1,
+        falhas_conexao: str = "",
     ) -> int:
         """Grava um registro de auditoria na tabela `sync_log` e retorna o `id` gerado."""
         amb = 1 if ambiente == 1 else 2
@@ -918,8 +924,9 @@ class RepositorioDistDFeSQLite:
             cur = conn.execute(
                 """
                 INSERT INTO sync_log (
-                    ts, ambiente, cstat, motivo, paginas, novos_docs, ultimo_nsu, origem
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ts, ambiente, cstat, motivo, paginas, novos_docs, ultimo_nsu, origem,
+                    tentativas, falhas_conexao
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts_str,
@@ -930,6 +937,8 @@ class RepositorioDistDFeSQLite:
                     novos_docs,
                     str(ultimo_nsu) if origem == "NFSE" else formatar_nsu(ultimo_nsu),
                     origem,
+                    max(1, int(tentativas)),
+                    falhas_conexao[:2000],
                 ),
             )
             return int(cur.lastrowid or 0)
@@ -957,6 +966,8 @@ class RepositorioDistDFeSQLite:
                     novos_docs=int(r["novos_docs"]),
                     ultimo_nsu=r["ultimo_nsu"] or "000000000000000",
                     origem=r["origem"] or "NFE",
+                    tentativas=int(r["tentativas"] or 1),
+                    falhas_conexao=r["falhas_conexao"] or "",
                 )
             )
         return logs
