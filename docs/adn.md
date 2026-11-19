@@ -179,3 +179,22 @@ cifrador negociados (melhor esforço; pode não estar disponível).
 `--tentativas N` (1 a 3, padrão 1) repete só em falha de conexão, com espera de 2 s, e informa
 quantas falharam; `--timeout SEGUNDOS` (padrão 30) vale para cada chamada, inclusive na
 sincronização.
+
+## Repetição em falhas de conexão (sincronização)
+
+O ADN de produção tem falhas de conexão intermitentes (observado em uso real: `RemoteDisconnected`
+na sincronização enquanto o diagnóstico funcionava em outras tentativas). Como `GET /DFe/{NSU}` é
+idempotente, a sincronização (CLI e API) repete **só falhas de conexão** (reset, `RemoteDisconnected`,
+tempo esgotado, falha de nome, falha de TLS): padrão de **3 tentativas** com espera crescente de
+**2 s, 5 s e 10 s** (a última se repete), configurável por `--tentativas N` (1 a 5) ou por
+`NFE_ADN_TENTATIVAS` (o argumento vale mais). **Não** repete: resposta HTTP válida (200, 400, 403,
+404 etc.), `429` e `5xx` (respeita o limite/indisponibilidade e trava novas consultas pelo
+intervalo), nem certificado inválido ou vencido.
+
+O cursor só avança por página recebida com sucesso e é salvo a cada página. Se uma página esgotar as
+tentativas, a execução encerra com `ERRO` mantendo tudo o que já foi gravado, e uma nova execução
+continua do cursor. O `sync_log` registra o total de tentativas usadas e, para cada falha, só a
+página, o número da tentativa, a etapa e a classe da exceção (nunca URL com parâmetros, CNPJ,
+caminho do certificado, senha nem XML). A mensagem final diz que falhas intermitentes do ADN são
+comuns, quantas vezes o programa tentou e que vale tentar de novo em alguns minutos; só depois vem a
+orientação sobre rede e certificado.

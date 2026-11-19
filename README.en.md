@@ -144,6 +144,7 @@ All are optional. **The program does not read the `.env` file by itself**: `.env
 | `NFE_UF_AUTOR` | IBGE code of the author's state (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF queried in `NFeDistribuicaoDFe`. **If empty, the A1 certificate's CNPJ is used.** Useful when the certificate belongs to an accountant/head office and the query is for another company. A document passed explicitly to the call takes priority over this variable. | Certificate CNPJ |
 | `NFE_ADN_URL_BASE` | Base URL of the national NFS-e ADN, with `https://`. Overrides the environment default; `--url-base` on `nfe-local sincronizar-adn` wins. Use `--diagnostico` to test the connection without writing anything. | environment default (see `docs/adn.md`) |
+| `NFE_ADN_TENTATIVAS` | Attempts per ADN query when the **connection** fails (1 to 5), with growing waits of 2 s, 5 s and 10 s. Valid HTTP responses, `429` and invalid certificates are not retried. `--tentativas` wins. | `3` |
 | `NFE_DB_PATH` | Local SQLite file (batches, inbound invoices, NSU cursor). | `data/nfe_recebidas.db` |
 | `LLM_API_KEY` | Enables the Analytical Assistant. **Empty = assistant off** and nothing leaves the computer. | — |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint (`/chat/completions`): OpenAI, Gemini (compat mode), Groq, local Ollama, etc. | `https://api.openai.com/v1` |

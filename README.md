@@ -147,6 +147,7 @@ fe-local` |
 | `NFE_UF_AUTOR` | Código IBGE da UF do autor (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF consultado no `NFeDistribuicaoDFe`. **Se vazio, usa o CNPJ do certificado A1.** Útil quando o certificado é de um contador/matriz e a consulta é de outra empresa. Um documento passado explicitamente à chamada tem prioridade sobre esta variável. | CNPJ do certificado |
 | `NFE_ADN_URL_BASE` | URL base do ADN Nacional (NFS-e), com `https://`. Sobrepõe o padrão do ambiente; a opção `--url-base` do `nfe-local sincronizar-adn` vale mais. Use `--diagnostico` para testar a conexão sem gravar nada. | padrão do ambiente (ver `docs/adn.md`) |
+| `NFE_ADN_TENTATIVAS` | Tentativas por consulta ao ADN quando a **conexão** falha (1 a 5), com espera crescente de 2 s, 5 s e 10 s. Não repete resposta HTTP válida, `429` nem certificado inválido. A opção `--tentativas` vale mais. | `3` |
 | `NFE_DB_PATH` | Arquivo SQLite local (lotes, notas recebidas, cursor NSU). | `data/nfe_recebidas.db` |
 | `LLM_API_KEY` | Liga o Assistente Analítico. **Vazia = assistente desligado** e nada sai do computador. | — |
 | `LLM_BASE_URL` | Endpoint compatível com OpenAI (`/chat/completions`): OpenAI, Gemini (modo compat), Groq, Ollama local etc. | `https://api.openai.com/v1` |
