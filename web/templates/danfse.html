@@ -163,6 +163,17 @@
     justify-content: center;
     align-items: center;
   }
+  .id-topo .qr .qr-svg {
+    width: 26mm;
+    height: 26mm;
+    margin: 0 auto 2pt;
+    display: block;
+  }
+  .id-topo .qr .qr-svg svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
   .id-topo .qr .qr-badge {
     border: 0.75pt dashed #555;
     padding: 4pt 6pt;
@@ -289,8 +300,12 @@
       </div>
     </div>
     <div class="qr">
-      <div class="qr-badge">VERIFICAÇÃO<br>DE AUTENTICIDADE<br>PORTAL NACIONAL</div>
-      <div class="txt">A autenticidade desta NFS-e pode ser verificada pela consulta da chave de acesso no portal nacional da NFS-e (www.nfse.gov.br/ConsultaPublica).</div>
+      {% if qr_svg %}
+        <div class="qr-svg">{{ qr_svg | safe }}</div>
+      {% else %}
+        <div class="qr-badge">VERIFICAÇÃO<br>DE AUTENTICIDADE<br>PORTAL NACIONAL</div>
+      {% endif %}
+      <div class="txt">A autenticidade desta NFS-e pode ser verificada pela leitura deste código QR ou pela consulta da chave de acesso no portal nacional da NFS-e.</div>
     </div>
   </div>
 

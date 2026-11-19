@@ -21,6 +21,7 @@ from reports.danfe_svg import (
     formatar_numero_nf,
     montar_contexto_danfe,
     montar_contexto_danfse,
+    qrcode_svg,
 )
 from sefaz.storage import RepositorioDistDFeSQLite
 
@@ -85,6 +86,16 @@ class TestFormatadoresEBarcodeSvg:
         assert barcode_svg("12345") == ""
         assert barcode_svg("3526031122233300018155001000001001110001001@") == ""
 
+    def test_qrcode_svg_gera_svg_vetorial_valido(self) -> None:
+        url = "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=35503082233444555000181000000000050126030000001005"
+        svg = qrcode_svg(url)
+        assert svg.startswith("<svg ")
+        assert svg.endswith("</svg>")
+        assert 'shape-rendering="crispEdges"' in svg
+        assert "<path " in svg
+        assert qrcode_svg("") == ""
+        assert qrcode_svg(None) == ""
+
     def test_montar_contextos_danfe_e_danfse(self) -> None:
         res_nfe = processar_arquivo_xml(
             (PASTA_FIXTURES / "nfe_55_cnpj_alfanumerico.xml").read_bytes(),
@@ -139,6 +150,11 @@ class TestFormatadoresEBarcodeSvg:
         assert d_nfse["ibs"]["v_cbs_fmt"] == "18,00"
         assert d_nfse["aprox_fed_fmt"] == "123,00"
         assert d_nfse["aprox_mun_fmt"] == "100,00"
+        assert ctx_nfse["qr_url"].startswith(
+            "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave="
+        )
+        assert ctx_nfse["qr_svg"].startswith("<svg ")
+        assert 'shape-rendering="crispEdges"' in ctx_nfse["qr_svg"]
 
 
 class TestInterfaceWebEDanfeRoutes:
@@ -156,6 +172,11 @@ class TestInterfaceWebEDanfeRoutes:
         assert "btn-subtab-notas" in html
         assert "btn-subtab-resumo" in html
         assert "btn-subtab-ia" in html
+        assert "paginacao-notas" in html
+        assert "select-por-pagina-notas" in html
+        assert "btn-pag-notas-ant" in html
+        assert "btn-pag-notas-prox" in html
+        assert "paginacao-recebidas" in html
         for campo_sort in (
             'data-sort="arquivo"',
             'data-sort="tipo"',
@@ -244,6 +265,8 @@ class TestInterfaceWebEDanfeRoutes:
         assert "Tributação IBS / CBS" in resp_danfse.text
         assert "Lei nº 12.741/2012" in resp_danfse.text
         assert "IBS" in resp_danfse.text
+        assert '<div class="qr-svg"><svg ' in resp_danfse.text
+        assert "leitura deste código QR" in resp_danfse.text
 
         # 6. Download do XML original por chave e por índice
         chave_nfe = corpo["resultados"][idx_nfe]["documento"]["chave_acesso"]

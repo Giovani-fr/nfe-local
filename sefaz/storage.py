@@ -130,6 +130,8 @@ CREATE INDEX IF NOT EXISTS idx_lotes_upload_criado_em
     ON lotes_upload(criado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_lotes_upload_itens_lote_id
     ON lotes_upload_itens(lote_id, indice ASC);
+CREATE INDEX IF NOT EXISTS idx_lotes_itens_chave
+    ON lotes_upload_itens(chave_acesso);
 """
 
 
@@ -919,21 +921,32 @@ class RepositorioDistDFeSQLite:
 
     def obter_acervo_unificado(
         self,
+        *,
+        incluir_xmls_brutos: bool = False,
     ) -> tuple[datetime, ResumoLote, list[ResultadoAnalise], dict[str, bytes]]:
-        """Consolida todas as notas de todos os lotes no SQLite, deduplicando chaves repetidas."""
+        """Consolida todas as notas de todos os lotes no SQLite, deduplicando chaves repetidas.
+
+        Por padrão (`incluir_xmls_brutos=False`) não lê nem descompacta a coluna `xml_gzip`,
+        mantendo o carregamento leve e instantâneo mesmo em acervos com 15.000+ notas.
+        """
         tipos_principais = {"NFE", "NFCE", "NFSE", "RESUMO"}
-        with self._conectar() as conn:
+        colunas = (
+            "l.criado_em, i.resultado_json, i.xml_gzip"
+            if incluir_xmls_brutos
+            else "l.criado_em, i.resultado_json"
+        )
+        conn = self._conectar()
+        try:
             rows = conn.execute(
-                """
-                SELECT
-                    l.criado_em,
-                    i.resultado_json,
-                    i.xml_gzip
+                f"""
+                SELECT {colunas}
                 FROM lotes_upload_itens i
                 INNER JOIN lotes_upload l ON l.lote_id = i.lote_id
                 ORDER BY l.criado_em DESC, l.rowid DESC, i.indice ASC
-                """
+                """  # noqa: S608
             ).fetchall()
+        finally:
+            conn.close()
 
         criado_em_ref = (
             (_iso_para_dt(rows[0]["criado_em"]) or datetime.now(UTC)) if rows else datetime.now(UTC)
@@ -956,7 +969,7 @@ class RepositorioDistDFeSQLite:
             idx_unificado = len(resultados_unificados)
             resultados_unificados.append(res)
 
-            if row["xml_gzip"]:
+            if incluir_xmls_brutos and row["xml_gzip"]:
                 xml_bytes = gzip.decompress(bytes(row["xml_gzip"]))
                 xmls_brutos[str(idx_unificado)] = xml_bytes
                 if chave_orig and chave_orig not in xmls_brutos:
@@ -966,6 +979,110 @@ class RepositorioDistDFeSQLite:
 
         resumo = gerar_resumo_lote(resultados_unificados)
         return criado_em_ref, resumo, resultados_unificados, xmls_brutos
+
+    def obter_nota_e_xml_no_escopo(
+        self,
+        lote_id: str,
+        identificador: str,
+    ) -> tuple[ResultadoAnalise, bytes] | None:
+        """Busca cirurgicamente 1 nota e descompacta apenas o seu `xml_gzip` no SQLite."""
+        escopo = lote_id.strip()
+        ident = identificador.strip()
+        if not escopo or not ident:
+            return None
+
+        eh_acervo = escopo.lower() == "acervo"
+        eh_indice = ident.isdigit() and len(ident) < 44
+        tipos_principais = {"NFE", "NFCE", "NFSE", "RESUMO"}
+
+        conn = self._conectar()
+        try:
+            row: sqlite3.Row | None = None
+            if eh_indice:
+                indice_alvo = int(ident)
+                if eh_acervo:
+                    # Varre apenas 3 colunas escalares (zero JSON/BLOB) para localizar o PK alvo
+                    cand_rows = conn.execute(
+                        """
+                        SELECT i.id, i.chave_acesso, i.tipo_documento
+                        FROM lotes_upload_itens i
+                        INNER JOIN lotes_upload l ON l.lote_id = i.lote_id
+                        ORDER BY l.criado_em DESC, l.rowid DESC, i.indice ASC
+                        """
+                    ).fetchall()
+                    chaves_vistas: set[str] = set()
+                    contador = 0
+                    row_id_alvo: int | None = None
+                    for cand in cand_rows:
+                        tipo_doc = cand["tipo_documento"] or ""
+                        chave_limpa = (
+                            limpar_chave_acesso(cand["chave_acesso"])
+                            if cand["chave_acesso"]
+                            else ""
+                        )
+                        if tipo_doc in tipos_principais and chave_limpa:
+                            if chave_limpa in chaves_vistas:
+                                continue
+                            chaves_vistas.add(chave_limpa)
+                        if contador == indice_alvo:
+                            row_id_alvo = int(cand["id"])
+                            break
+                        contador += 1
+
+                    if row_id_alvo is not None:
+                        row = conn.execute(
+                            """
+                            SELECT resultado_json, xml_gzip
+                            FROM lotes_upload_itens
+                            WHERE id = ?
+                            """,
+                            (row_id_alvo,),
+                        ).fetchone()
+                else:
+                    row = conn.execute(
+                        """
+                        SELECT resultado_json, xml_gzip
+                        FROM lotes_upload_itens
+                        WHERE lote_id = ? AND indice = ?
+                        LIMIT 1
+                        """,
+                        (escopo, indice_alvo),
+                    ).fetchone()
+            else:
+                chave_limpa = limpar_chave_acesso(ident)
+                chave_b = chave_limpa or ident
+                if eh_acervo:
+                    row = conn.execute(
+                        """
+                        SELECT i.resultado_json, i.xml_gzip
+                        FROM lotes_upload_itens i
+                        INNER JOIN lotes_upload l ON l.lote_id = i.lote_id
+                        WHERE i.chave_acesso IN (?, ?)
+                        ORDER BY l.criado_em DESC, l.rowid DESC, i.indice ASC
+                        LIMIT 1
+                        """,
+                        (ident, chave_b),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        """
+                        SELECT resultado_json, xml_gzip
+                        FROM lotes_upload_itens
+                        WHERE lote_id = ? AND chave_acesso IN (?, ?)
+                        ORDER BY indice ASC
+                        LIMIT 1
+                        """,
+                        (escopo, ident, chave_b),
+                    ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            return None
+
+        resultado = ResultadoAnalise.model_validate_json(row["resultado_json"])
+        xml_bytes = gzip.decompress(bytes(row["xml_gzip"])) if row["xml_gzip"] else b""
+        return resultado, xml_bytes
 
     def limpar_notas_recebidas(self, zerar_cursor: bool = True) -> int:
         """Remove notas e eventos recebidos (e opcionalmente `dfe_cursor` e `sync_log`)."""

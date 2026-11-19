@@ -246,6 +246,27 @@
                     <tbody id="tbody-notas"></tbody>
                   </table>
                 </div>
+
+                <div id="paginacao-notas" class="pagination-bar" aria-label="Paginação de documentos fiscais">
+                  <div class="pagination-info">
+                    <span id="lbl-paginacao-notas" class="muted">Página 1 de 1 (exibindo 0–0 de 0 documentos)</span>
+                  </div>
+                  <div class="pagination-controls">
+                    <label for="select-por-pagina-notas" class="muted">Por página:</label>
+                    <select id="select-por-pagina-notas" class="input-control input-sm">
+                      <option value="50">50</option>
+                      <option value="100" selected>100</option>
+                      <option value="250">250</option>
+                      <option value="0">Todas</option>
+                    </select>
+                    <button id="btn-pag-notas-ant" type="button" class="btn btn-sm btn-secondary" disabled>
+                      « Anterior
+                    </button>
+                    <button id="btn-pag-notas-prox" type="button" class="btn btn-sm btn-secondary" disabled>
+                      Próxima »
+                    </button>
+                  </div>
+                </div>
               </section>
             </div>
 
@@ -573,6 +594,27 @@
             </thead>
             <tbody id="tbody-recebidas"></tbody>
           </table>
+        </div>
+
+        <div id="paginacao-recebidas" class="pagination-bar" aria-label="Paginação de notas recebidas">
+          <div class="pagination-info">
+            <span id="lbl-paginacao-recebidas" class="muted">Página 1 de 1 (exibindo 0–0 de 0 documentos)</span>
+          </div>
+          <div class="pagination-controls">
+            <label for="select-por-pagina-recebidas" class="muted">Por página:</label>
+            <select id="select-por-pagina-recebidas" class="input-control input-sm">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="0">Todas</option>
+            </select>
+            <button id="btn-pag-rec-ant" type="button" class="btn btn-sm btn-secondary" disabled>
+              « Anterior
+            </button>
+            <button id="btn-pag-rec-prox" type="button" class="btn btn-sm btn-secondary" disabled>
+              Próxima »
+            </button>
+          </div>
         </div>
       </section>
     </div>

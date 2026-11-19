@@ -15,8 +15,10 @@ from api.app import (
     definir_repositorio_recebidas,
     definir_servico_assistente,
     obter_repositorio_lotes,
+    obter_repositorio_recebidas,
     obter_servico_assistente,
 )
+from parsers.detector import MAX_ARQUIVOS_ZIP_PADRAO, MAX_BYTES_TOTAL_ZIP_PADRAO
 from reports.assistente_lote import ServicoAssistenteLote
 from sefaz.storage import RepositorioDistDFeSQLite
 
@@ -385,3 +387,96 @@ class TestHistoricoPersistenteEAcervoUnificado:
         assert "Reset Completo do Banco SQLite Local" in saida_txt
         assert "Lotes removidos     : 0" in saida_txt
         assert "Recebidas removidas : 0" in saida_txt
+
+    def test_lazy_load_acervo_e_busca_cirurgica_de_uma_nota_no_sqlite(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Confirma ampliação dos limites padrão de ZIP para grandes acervos
+        assert MAX_ARQUIVOS_ZIP_PADRAO == 50_000
+        assert MAX_BYTES_TOTAL_ZIP_PADRAO == 1024 * 1024 * 1024
+
+        # Sobe 2 lotes com notas distintas + 1 nota repetida entre eles
+        resp_l1 = client.post(
+            "/api/lote",
+            files=[
+                (
+                    "files",
+                    (
+                        "nfe_55_valida.xml",
+                        (PASTA_FIXTURES / "nfe_55_valida.xml").read_bytes(),
+                        "application/xml",
+                    ),
+                ),
+            ],
+        )
+        assert resp_l1.status_code == 200
+        lote_id_1 = resp_l1.json()["lote_id"]
+
+        resp_l2 = client.post(
+            "/api/lote",
+            files=[
+                (
+                    "files",
+                    (
+                        "nfse_nacional_valida.xml",
+                        (PASTA_FIXTURES / "nfse_nacional_valida.xml").read_bytes(),
+                        "application/xml",
+                    ),
+                ),
+            ],
+        )
+        assert resp_l2.status_code == 200
+
+        # Limpa cache RAM para forçar leitura do SQLite
+        obter_repositorio_lotes().limpar()
+        repo = obter_repositorio_recebidas()
+
+        # 1. obter_acervo_unificado() padrão (incluir_xmls_brutos=False) NÃO descompacta xml_gzip
+        _, _, resultados_lazy, xmls_lazy = repo.obter_acervo_unificado()
+        assert len(resultados_lazy) == 2
+        assert xmls_lazy == {}
+
+        # 2. Com incluir_xmls_brutos=True, descompacta sob demanda
+        _, _, _, xmls_full = repo.obter_acervo_unificado(incluir_xmls_brutos=True)
+        assert CHAVE_NFE_1001 in xmls_full
+
+        # 3. Busca cirúrgica de 1 nota no escopo 'acervo' e em lote específico (por chave e índice)
+        achado_chave = repo.obter_nota_e_xml_no_escopo("acervo", CHAVE_NFE_1001)
+        assert achado_chave is not None
+        res_chave, xml_chave = achado_chave
+        assert res_chave.documento is not None
+        assert res_chave.documento.chave_acesso == CHAVE_NFE_1001
+        assert b"<nfeProc" in xml_chave
+
+        achado_idx0 = repo.obter_nota_e_xml_no_escopo("acervo", "0")
+        assert achado_idx0 is not None
+        assert achado_idx0[0].documento is not None
+        assert achado_idx0[0].documento.tipo == "NFSE"
+        assert b"<NFSe" in achado_idx0[1]
+
+        achado_lote = repo.obter_nota_e_xml_no_escopo(lote_id_1, "0")
+        assert achado_lote is not None
+        assert b"<nfeProc" in achado_lote[1]
+
+        # 4. Garante que rotas de detalhe, espelho e XML do acervo NÃO chamam obter_acervo_unificado
+        def _proibido(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("Não deve carregar o acervo inteiro para abrir 1 única nota!")
+
+        monkeypatch.setattr(repo, "obter_acervo_unificado", _proibido)
+
+        resp_nota = client.get(f"/api/lote/acervo/nota/{CHAVE_NFE_1001}")
+        assert resp_nota.status_code == 200
+        assert resp_nota.json()["documento"]["chave_acesso"] == CHAVE_NFE_1001
+
+        resp_espelho = client.get(f"/lote/acervo/nota/{CHAVE_NFE_1001}/espelho")
+        assert resp_espelho.status_code == 200
+        assert "DANFE" in resp_espelho.text
+
+        resp_xml = client.get(f"/lote/acervo/nota/{CHAVE_NFE_1001}/xml")
+        assert resp_xml.status_code == 200
+        assert b"<nfeProc" in resp_xml.content
+
+        resp_espelho_idx = client.get("/lote/acervo/nota/0/espelho")
+        assert resp_espelho_idx.status_code == 200
+        assert "DANFSe v2.0" in resp_espelho_idx.text
+        assert '<div class="qr-svg"><svg ' in resp_espelho_idx.text

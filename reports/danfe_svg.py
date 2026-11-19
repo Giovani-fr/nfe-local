@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import qrcode
 from lxml import etree
 
 from models.fiscal import DocumentoFiscal, Parte, ResultadoAnalise
@@ -407,6 +408,48 @@ def barcode_svg(chave: str | None) -> str:
         f'style="width:100%;height:100%;display:block" '
         f'role="img" aria-label="Código de barras da chave de acesso">'
         f"{''.join(retangulos)}</svg>"
+    )
+
+
+def qrcode_svg(texto_url: str | None) -> str:
+    """Gera QR Code vetorial em `<svg>` puro (sem Pillow) com `shape-rendering='crispEdges'`."""
+    conteudo = (texto_url or "").strip()
+    if not conteudo:
+        return ""
+
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=4,
+        border=1,
+    )
+    qr.add_data(conteudo)
+    qr.make(fit=True)
+    matriz = qr.get_matrix()
+    tamanho = len(matriz)
+    if tamanho == 0:
+        return ""
+
+    segmentos: list[str] = []
+    for y, linha in enumerate(matriz):
+        x = 0
+        while x < tamanho:
+            if linha[x]:
+                inicio = x
+                while x < tamanho and linha[x]:
+                    x += 1
+                largura = x - inicio
+                segmentos.append(f"M{inicio} {y}h{largura}v1h-{largura}z")
+            else:
+                x += 1
+
+    caminho = "".join(segmentos)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {tamanho} {tamanho}" '
+        f'width="100%" height="100%" shape-rendering="crispEdges" '
+        f'style="width:100%;height:100%;display:block" '
+        f'role="img" aria-label="QR Code de autenticidade da NFS-e">'
+        f'<rect width="{tamanho}" height="{tamanho}" fill="#fff"/>'
+        f'<path fill="#000" d="{caminho}"/></svg>'
     )
 
 
@@ -1235,10 +1278,18 @@ def montar_contexto_danfse(
     iss_aliquota = item_principal.imposto.iss_aliquota if item_principal else DECIMAL_ZERO
     iss_retido = item_principal.imposto.iss_retido if item_principal else False
     chave_efetiva = d["chave"] or doc.chave_acesso
+    qr_url = (
+        f"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave={chave_efetiva}"
+        if chave_efetiva
+        else ""
+    )
+    qr_svg = qrcode_svg(qr_url) if qr_url else ""
 
     return {
         "d": d,
         "chave": chave_efetiva,
+        "qr_url": qr_url,
+        "qr_svg": qr_svg,
         "arquivo_origem": res.arquivo_origem,
         "valido": res.valido,
         "alertas": [a.model_dump() for a in res.alertas],
@@ -1292,4 +1343,5 @@ __all__ = [
     "montar_contexto_danfe",
     "montar_contexto_danfse",
     "nome_local",
+    "qrcode_svg",
 ]

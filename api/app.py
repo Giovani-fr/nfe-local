@@ -412,11 +412,11 @@ def _gerar_nome_rotulo_upload(nomes_enviados: list[str], total_resultados: int) 
 
 
 def _resolver_lote_ou_acervo(lote_id: str) -> LoteArmazenado:
-    """Resolve `acervo` dinamicamente no SQLite ou busca `lote_id` em RAM com fallback SQLite."""
+    """Resolve `acervo` dinamicamente no SQLite (lazy load) ou `lote_id` em RAM/SQLite."""
     ident = lote_id.strip()
     if ident.lower() == "acervo":
         criado_em, resumo, resultados, xmls_brutos = (
-            obter_repositorio_recebidas().obter_acervo_unificado()
+            obter_repositorio_recebidas().obter_acervo_unificado(incluir_xmls_brutos=False)
         )
         return LoteArmazenado(
             lote_id="acervo",
@@ -443,6 +443,50 @@ def _resolver_lote_ou_acervo(lote_id: str) -> LoteArmazenado:
         xmls_brutos=xmls_brutos,
     )
     return _REPOSITORIO_LOTES.salvar_lote(lote_hidratado)
+
+
+def _obter_nota_e_xml_cirurgico(
+    lote_id: str,
+    identificador: str,
+) -> tuple[str, ResultadoAnalise, bytes]:
+    """Busca apenas 1 nota e seu XML bruto sem descompactar o acervo/lote inteiro."""
+    ident_lote = lote_id.strip()
+    if ident_lote.lower() == "acervo":
+        achado = obter_repositorio_recebidas().obter_nota_e_xml_no_escopo("acervo", identificador)
+        if achado is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nota '{identificador}' não encontrada no lote 'acervo'.",
+            )
+        resultado, xml_bytes = achado
+        return "acervo", resultado, xml_bytes
+
+    lote_mem = _REPOSITORIO_LOTES.obter(ident_lote)
+    if lote_mem is not None:
+        indice, resultado = _localizar_nota_no_lote(lote_mem, identificador)
+        xml_bytes = (
+            lote_mem.xmls_brutos.get(identificador.strip())
+            or lote_mem.xmls_brutos.get(limpar_chave_acesso(identificador))
+            or lote_mem.xmls_brutos.get(str(indice))
+            or b""
+        )
+        if not xml_bytes:
+            achado_db = obter_repositorio_recebidas().obter_nota_e_xml_no_escopo(
+                ident_lote, identificador
+            )
+            if achado_db is not None:
+                xml_bytes = achado_db[1]
+        return lote_mem.lote_id, resultado, xml_bytes
+
+    achado = obter_repositorio_recebidas().obter_nota_e_xml_no_escopo(ident_lote, identificador)
+    if achado is not None:
+        resultado, xml_bytes = achado
+        return ident_lote, resultado, xml_bytes
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Nota '{identificador}' não encontrada no lote '{lote_id}'.",
+    )
 
 
 def _localizar_nota_no_lote(
@@ -525,14 +569,15 @@ async def criar_lote(
         entradas.append((nome, conteudo))
 
     resultados, xmls_brutos = processar_entradas_com_xml_bruto(entradas)
-    lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_brutos)
+    xmls_ram = xmls_brutos if len(resultados) <= 500 else {}
+    lote = _REPOSITORIO_LOTES.criar_e_salvar(resultados, xmls_ram)
     nome_rotulo = _gerar_nome_rotulo_upload([n for n, _ in entradas], len(resultados))
     obter_repositorio_recebidas().salvar_lote_upload(
         lote_id=lote.lote_id,
         criado_em=lote.criado_em,
         resumo=lote.resumo,
         resultados=lote.resultados,
-        xmls_brutos=lote.xmls_brutos,
+        xmls_brutos=xmls_brutos,
         nome_rotulo=nome_rotulo,
         origem="upload",
     )
@@ -671,9 +716,7 @@ def obter_lote(
 @app.get("/api/lote/{lote_id}/nota/{identificador}", response_model=ResultadoAnalise)
 def obter_nota_do_lote(lote_id: str, identificador: str) -> ResultadoAnalise:
     """Retorna o `ResultadoAnalise` de uma nota específica pela chave de acesso ou índice."""
-    lote = _resolver_lote_ou_acervo(lote_id)
-
-    _, resultado = _localizar_nota_no_lote(lote, identificador)
+    _, resultado, _ = _obter_nota_e_xml_cirurgico(lote_id, identificador)
     return resultado
 
 
@@ -712,9 +755,7 @@ def renderizar_espelho_nota(
     identificador: str,
 ) -> HTMLResponse:
     """Renderiza o espelho A4 imprimível (DANFE NF-e/NFC-e ou DANFSe NT 008/2026)."""
-    lote = _resolver_lote_ou_acervo(lote_id)
-
-    indice, resultado = _localizar_nota_no_lote(lote, identificador)
+    escopo_efetivo, resultado, xml_bytes = _obter_nota_e_xml_cirurgico(lote_id, identificador)
     if resultado.documento is None:
         raise HTTPException(
             status_code=400,
@@ -724,20 +765,14 @@ def renderizar_espelho_nota(
             ),
         )
 
-    xml_bytes = (
-        lote.xmls_brutos.get(identificador.strip())
-        or lote.xmls_brutos.get(limpar_chave_acesso(identificador))
-        or lote.xmls_brutos.get(str(indice))
-    )
-
     if resultado.documento.tipo == "NFSE":
-        contexto = montar_contexto_danfse(resultado, xml_bytes=xml_bytes)
+        contexto = montar_contexto_danfse(resultado, xml_bytes=xml_bytes or None)
         nome_template = "danfse.html"
     else:
-        contexto = montar_contexto_danfe(resultado, xml_bytes=xml_bytes)
+        contexto = montar_contexto_danfe(resultado, xml_bytes=xml_bytes or None)
         nome_template = "danfe.html"
 
-    contexto["lote_id"] = lote.lote_id
+    contexto["lote_id"] = escopo_efetivo
     contexto["identificador"] = identificador
     return templates.TemplateResponse(request, nome_template, contexto)
 
@@ -745,14 +780,7 @@ def renderizar_espelho_nota(
 @app.get("/lote/{lote_id}/nota/{identificador}/xml")
 def baixar_xml_nota(lote_id: str, identificador: str) -> Response:
     """Retorna os bytes brutos do XML original da nota selecionada."""
-    lote = _resolver_lote_ou_acervo(lote_id)
-
-    indice, resultado = _localizar_nota_no_lote(lote, identificador)
-    xml_bytes = (
-        lote.xmls_brutos.get(identificador.strip())
-        or lote.xmls_brutos.get(limpar_chave_acesso(identificador))
-        or lote.xmls_brutos.get(str(indice))
-    )
+    _, resultado, xml_bytes = _obter_nota_e_xml_cirurgico(lote_id, identificador)
     if not xml_bytes:
         raise HTTPException(
             status_code=404,

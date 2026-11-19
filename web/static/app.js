@@ -9,8 +9,10 @@
     historicoLotes: [],
     subabaAtiva: "notas",
     ordenacaoNotas: { campo: null, direcao: "asc" },
+    paginacaoNotas: { pagina: 1, porPagina: 100 },
     notasRecebidas: [],
     ordenacaoRecebidas: { campo: null, direcao: "asc" },
+    paginacaoRecebidas: { pagina: 1, porPagina: 100 },
   };
 
   const ROTULOS_ALERTA = {
@@ -426,6 +428,7 @@
     atualizarStatusLLM();
 
     popularSeletorEmitentes(estado.resultados);
+    estado.paginacaoNotas.pagina = 1;
     renderizarSidebarHistorico();
     renderizarTabelaNotas();
   };
@@ -692,7 +695,22 @@
     const itensOrdenados = ordenarItensNotas(itensFiltrados);
     atualizarIndicadoresOrdenacao(".data-table-notas", estado.ordenacaoNotas);
 
-    const linhas = itensOrdenados.map(({ res, idx }) => {
+    const totalFiltrado = itensOrdenados.length;
+    const porPagina = Number(estado.paginacaoNotas.porPagina || 0);
+    const totalPaginas =
+      porPagina > 0 ? Math.max(1, Math.ceil(totalFiltrado / porPagina)) : 1;
+    if (estado.paginacaoNotas.pagina > totalPaginas) {
+      estado.paginacaoNotas.pagina = totalPaginas;
+    }
+    if (estado.paginacaoNotas.pagina < 1) {
+      estado.paginacaoNotas.pagina = 1;
+    }
+
+    const inicio = porPagina > 0 ? (estado.paginacaoNotas.pagina - 1) * porPagina : 0;
+    const fim = porPagina > 0 ? Math.min(inicio + porPagina, totalFiltrado) : totalFiltrado;
+    const itensPagina = itensOrdenados.slice(inicio, fim);
+
+    const linhas = itensPagina.map(({ res, idx }) => {
       const doc = res.documento;
       const tipo = doc ? doc.tipo : "ERRO_XML";
       const numSerie = doc ? `${doc.numero || "-"} / ${doc.serie || "-"}` : "-";
@@ -707,9 +725,12 @@
           : '<span class="muted">Não identificado</span>';
       const valorTotal = doc ? fmtMoeda(doc.totais.valor_total_nota) : "0,00";
 
+      const chaveValida = (doc?.chave_acesso || "").trim();
+      const identUrl =
+        chaveValida.length >= 44 ? encodeURIComponent(chaveValida) : String(idx);
       const rotuloEspelho = tipo === "NFSE" ? "📄 DANFSe" : "📄 DANFE";
       const btnEspelho = doc
-        ? `<a class="btn btn-sm btn-primary" href="/lote/${estado.loteId}/nota/${idx}/espelho" target="_blank" rel="noopener">${rotuloEspelho}</a>`
+        ? `<a class="btn btn-sm btn-primary" href="/lote/${estado.loteId}/nota/${identUrl}/espelho" target="_blank" rel="noopener">${rotuloEspelho}</a>`
         : "";
 
       return `
@@ -731,7 +752,7 @@
               <button type="button" class="btn btn-sm btn-secondary" data-action="detalhes" data-idx="${idx}" title="Ver detalhes, itens e alertas">
                 🔍 Detalhes
               </button>
-              <a class="btn btn-sm btn-ghost" href="/lote/${estado.loteId}/nota/${idx}/xml" download>
+              <a class="btn btn-sm btn-ghost" href="/lote/${estado.loteId}/nota/${identUrl}/xml" download>
                 ⬇ XML
               </a>
             </div>
@@ -741,8 +762,19 @@
     });
 
     if (contadorEl) {
-      contadorEl.textContent = `Exibindo ${linhas.length} de ${totalBruto} documento(s)`;
+      contadorEl.textContent = `Exibindo ${totalFiltrado} de ${totalBruto} documento(s)`;
     }
+
+    const lblPag = document.getElementById("lbl-paginacao-notas");
+    const btnAnt = document.getElementById("btn-pag-notas-ant");
+    const btnProx = document.getElementById("btn-pag-notas-prox");
+    if (lblPag) {
+      const a = totalFiltrado === 0 ? 0 : inicio + 1;
+      const b = fim;
+      lblPag.textContent = `Página ${estado.paginacaoNotas.pagina} de ${totalPaginas} (exibindo ${a}–${b} de ${totalFiltrado} documentos)`;
+    }
+    if (btnAnt) btnAnt.disabled = estado.paginacaoNotas.pagina <= 1;
+    if (btnProx) btnProx.disabled = estado.paginacaoNotas.pagina >= totalPaginas;
 
     tbody.innerHTML =
       linhas.join("") ||
@@ -1185,7 +1217,30 @@
     if (!tbody) return;
 
     atualizarIndicadoresOrdenacao(".data-table-recebidas", estado.ordenacaoRecebidas);
-    const notas = ordenarNotasRecebidas(estado.notasRecebidas || []);
+    const notasOrdenadas = ordenarNotasRecebidas(estado.notasRecebidas || []);
+    const total = notasOrdenadas.length;
+    const porPagina = Number(estado.paginacaoRecebidas.porPagina || 0);
+    const totalPaginas = porPagina > 0 ? Math.max(1, Math.ceil(total / porPagina)) : 1;
+    if (estado.paginacaoRecebidas.pagina > totalPaginas) {
+      estado.paginacaoRecebidas.pagina = totalPaginas;
+    }
+    if (estado.paginacaoRecebidas.pagina < 1) {
+      estado.paginacaoRecebidas.pagina = 1;
+    }
+
+    const inicio = porPagina > 0 ? (estado.paginacaoRecebidas.pagina - 1) * porPagina : 0;
+    const fim = porPagina > 0 ? Math.min(inicio + porPagina, total) : total;
+    const notas = notasOrdenadas.slice(inicio, fim);
+
+    const lblPag = document.getElementById("lbl-paginacao-recebidas");
+    const btnAnt = document.getElementById("btn-pag-rec-ant");
+    const btnProx = document.getElementById("btn-pag-rec-prox");
+    if (lblPag) {
+      const a = total === 0 ? 0 : inicio + 1;
+      lblPag.textContent = `Página ${estado.paginacaoRecebidas.pagina} de ${totalPaginas} (exibindo ${a}–${fim} de ${total} documentos)`;
+    }
+    if (btnAnt) btnAnt.disabled = estado.paginacaoRecebidas.pagina <= 1;
+    if (btnProx) btnProx.disabled = estado.paginacaoRecebidas.pagina >= totalPaginas;
 
     if (notas.length === 0) {
       tbody.innerHTML =
@@ -1264,6 +1319,7 @@
       if (kpiValor) kpiValor.textContent = fmtMoedaRS(dados.valor_total_filtrado || 0);
 
       estado.notasRecebidas = dados.notas || [];
+      estado.paginacaoRecebidas.pagina = 1;
       renderizarTabelaRecebidas();
     } catch (err) {
       definirStatusRecebidas(`Erro ao listar notas recebidas: ${err.message}`, true);
@@ -1444,6 +1500,7 @@
       const selectEmit = document.getElementById("filtro-emitente");
       if (selectEmit) {
         selectEmit.value = chaveEmit;
+        estado.paginacaoNotas.pagina = 1;
         alternarSubaba("notas");
         renderizarTabelaNotas();
       }
@@ -1530,8 +1587,44 @@
     ["filtro-busca", "filtro-tipo", "filtro-status", "filtro-emitente"].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener("input", renderizarTabelaNotas);
-      el.addEventListener("change", renderizarTabelaNotas);
+      const onFiltro = () => {
+        estado.paginacaoNotas.pagina = 1;
+        renderizarTabelaNotas();
+      };
+      el.addEventListener("input", onFiltro);
+      el.addEventListener("change", onFiltro);
+    });
+
+    document.getElementById("select-por-pagina-notas")?.addEventListener("change", (e) => {
+      estado.paginacaoNotas.porPagina = Number(e.target.value || 100);
+      estado.paginacaoNotas.pagina = 1;
+      renderizarTabelaNotas();
+    });
+    document.getElementById("btn-pag-notas-ant")?.addEventListener("click", () => {
+      if (estado.paginacaoNotas.pagina > 1) {
+        estado.paginacaoNotas.pagina -= 1;
+        renderizarTabelaNotas();
+      }
+    });
+    document.getElementById("btn-pag-notas-prox")?.addEventListener("click", () => {
+      estado.paginacaoNotas.pagina += 1;
+      renderizarTabelaNotas();
+    });
+
+    document.getElementById("select-por-pagina-recebidas")?.addEventListener("change", (e) => {
+      estado.paginacaoRecebidas.porPagina = Number(e.target.value || 100);
+      estado.paginacaoRecebidas.pagina = 1;
+      renderizarTabelaRecebidas();
+    });
+    document.getElementById("btn-pag-rec-ant")?.addEventListener("click", () => {
+      if (estado.paginacaoRecebidas.pagina > 1) {
+        estado.paginacaoRecebidas.pagina -= 1;
+        renderizarTabelaRecebidas();
+      }
+    });
+    document.getElementById("btn-pag-rec-prox")?.addEventListener("click", () => {
+      estado.paginacaoRecebidas.pagina += 1;
+      renderizarTabelaRecebidas();
     });
 
     document.querySelector(".data-table-notas thead")?.addEventListener("click", (e) => {
@@ -1546,6 +1639,7 @@
         estado.ordenacaoNotas.direcao =
           campo === "data_emissao" || campo === "valor_total" ? "desc" : "asc";
       }
+      estado.paginacaoNotas.pagina = 1;
       renderizarTabelaNotas();
     });
 
@@ -1561,6 +1655,7 @@
         estado.ordenacaoRecebidas.direcao =
           campo === "data_emissao" || campo === "valor_total" ? "desc" : "asc";
       }
+      estado.paginacaoRecebidas.pagina = 1;
       renderizarTabelaRecebidas();
     });
 
