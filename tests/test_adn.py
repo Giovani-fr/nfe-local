@@ -89,6 +89,9 @@ class _Resp:
         )
 
 
+CORPO_FIM = {"StatusProcessamento": "NENHUM_DOCUMENTO_LOCALIZADO"}
+
+
 class _Sessao:
     def __init__(self, *respostas) -> None:
         self.respostas = list(respostas)
@@ -124,13 +127,13 @@ class TestClienteADN:
         assert resp.status_processamento == "NENHUM_DOCUMENTO_LOCALIZADO"
 
     def test_producao_usa_o_outro_host(self, pfx_sintetico):
-        sessao = _Sessao(_Resp(404, {}))
+        sessao = _Sessao(_Resp(404, CORPO_FIM))
         _cliente(pfx_sintetico, sessao, ambiente=1).consultar_nsu(7)
         assert sessao.chamadas[0]["url"] == "https://adn.nfse.gov.br/contribuintes/DFe/7"
 
     def test_env_nfe_cnpj_consulta_substitui_o_do_certificado(self, pfx_sintetico, monkeypatch):
         monkeypatch.setenv("NFE_CNPJ_CONSULTA", "33.444.555/0001-81")
-        sessao = _Sessao(_Resp(404, {}))
+        sessao = _Sessao(_Resp(404, CORPO_FIM))
         _cliente(pfx_sintetico, sessao).consultar_nsu(0)
         assert sessao.chamadas[0]["params"]["cnpjConsulta"] == "33444555000181"
 
