@@ -524,6 +524,10 @@
         badge.textContent = "Desativado (defina a variável de ambiente LLM_API_KEY)";
       }
       quota.textContent = `Chamadas restantes: ${st.chamadas_restantes}/${st.max_chamadas_hora} por hora`;
+      // Sem a amostra de notas o modelo não sabe dizer quais notas têm alertas: esconde o chip.
+      document.querySelectorAll("[data-requer-amostra]").forEach((chip) => {
+        chip.classList.toggle("hidden", !st.enviar_amostra);
+      });
     } catch (_) {
       badge.className = "badge badge-type";
       badge.textContent = "Status indisponível";

@@ -191,3 +191,12 @@ def test_api_devolve_legenda_e_status_mostra_o_modo(tmp_path: Path) -> None:
         assert legenda[0]["razao_social"] in RAZOES
     finally:
         definir_servico_assistente(ServicoAssistenteLote())
+
+
+def test_chip_de_notas_com_alertas_so_aparece_com_amostra_ligada() -> None:
+    raiz = Path(__file__).resolve().parents[1] / "web"
+    html = (raiz / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (raiz / "static" / "app.js").read_text(encoding="utf-8")
+    chip = html[html.index('id="chip-llm-notas-alertas"') :].split(">", 1)[0]
+    assert "hidden" in chip and "data-requer-amostra" in chip
+    assert 'classList.toggle("hidden", !st.enviar_amostra)' in js
