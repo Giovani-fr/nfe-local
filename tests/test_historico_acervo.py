@@ -370,7 +370,7 @@ class TestHistoricoPersistenteEAcervoUnificado:
             definir_repositorio_recebidas(None)
 
         # Executa CLI com --db e --json
-        codigo = cli.main(["resetar-banco", "--db", str(caminho_db), "--json"])
+        codigo = cli.main(["resetar-banco", "--db", str(caminho_db), "--json", "--sim"])
         assert codigo == 0
         saida_json = json.loads(capsys.readouterr().out)
         assert saida_json["status"] == "ok"
@@ -381,12 +381,71 @@ class TestHistoricoPersistenteEAcervoUnificado:
         assert repo.listar_logs_sync() == []
 
         # Segunda execução em modo texto (banco já vazio)
-        codigo_txt = cli.main(["resetar-banco", "--db", str(caminho_db)])
+        codigo_txt = cli.main(["resetar-banco", "--db", str(caminho_db), "--sim"])
         assert codigo_txt == 0
         saida_txt = capsys.readouterr().out
         assert "Reset Completo do Banco SQLite Local" in saida_txt
         assert "Lotes removidos     : 0" in saida_txt
         assert "Recebidas removidas : 0" in saida_txt
+
+    @pytest.mark.parametrize("resposta", ["APAGAR", "y", "sim"])
+    def test_cli_resetar_banco_pede_confirmacao_e_apaga_se_confirmado(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        resposta: str,
+    ) -> None:
+        repo = RepositorioDistDFeSQLite(tmp_path / "confirma.db")
+        definir_repositorio_recebidas(repo)
+        try:
+            with TestClient(app) as tc:
+                assert tc.post("/api/lote/demo").status_code == 200
+        finally:
+            definir_repositorio_recebidas(None)
+        monkeypatch.setattr("builtins.input", lambda *_: resposta)
+        assert cli.main(["resetar-banco", "--db", str(repo.caminho_db), "--json"]) == 0
+        captura = capsys.readouterr()
+        assert "APAGAR" in captura.err and json.loads(captura.out)["status"] == "ok"
+        assert repo.listar_lotes_upload() == []
+
+    @pytest.mark.parametrize("resposta", ["", "n", "N", "apagar", "talvez"])
+    def test_cli_resetar_banco_cancela_sem_confirmacao_valida(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        resposta: str,
+    ) -> None:
+        repo = RepositorioDistDFeSQLite(tmp_path / "cancela.db")
+        definir_repositorio_recebidas(repo)
+        try:
+            with TestClient(app) as tc:
+                assert tc.post("/api/lote/demo").status_code == 200
+        finally:
+            definir_repositorio_recebidas(None)
+        monkeypatch.setattr("builtins.input", lambda *_: resposta)
+        assert cli.main(["resetar-banco", "--db", str(repo.caminho_db)]) == 1
+        assert "nada foi apagado" in capsys.readouterr().err
+        assert len(repo.listar_lotes_upload()) == 1
+
+    def test_cli_resetar_banco_sem_terminal_nao_apaga(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = RepositorioDistDFeSQLite(tmp_path / "eof.db")
+        definir_repositorio_recebidas(repo)
+        try:
+            with TestClient(app) as tc:
+                assert tc.post("/api/lote/demo").status_code == 200
+        finally:
+            definir_repositorio_recebidas(None)
+
+        def _eof(*_: object) -> str:
+            raise EOFError
+
+        monkeypatch.setattr("builtins.input", _eof)
+        assert cli.main(["resetar-banco", "--db", str(repo.caminho_db)]) == 1
+        assert len(repo.listar_lotes_upload()) == 1
 
     def test_lazy_load_acervo_e_busca_cirurgica_de_uma_nota_no_sqlite(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

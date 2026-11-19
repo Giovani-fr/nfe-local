@@ -151,6 +151,12 @@ def criar_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Imprime na saída padrão o resultado estruturado em JSON.",
     )
+    parser_reset.add_argument(
+        "--sim",
+        dest="confirmar_sim",
+        action="store_true",
+        help="Pula a pergunta de confirmação e apaga imediatamente (use em scripts).",
+    )
 
     return parser
 
@@ -333,8 +339,26 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
     return 0
 
 
+def _confirmar_reset(caminho_db: Path) -> bool:
+    """Pede confirmação explícita (a pergunta vai para o stderr, mantendo o stdout limpo)."""
+    sys.stderr.write(
+        "ATENÇÃO: isto apaga TODOS os lotes, notas recebidas, cursores NSU e logs de\n"
+        f"{caminho_db}\n"
+        "Digite APAGAR para confirmar (ou y/N): "
+    )
+    sys.stderr.flush()
+    try:
+        resposta = input().strip()
+    except EOFError:
+        return False
+    return resposta == "APAGAR" or resposta.lower() in {"y", "yes", "s", "sim"}
+
+
 def _executar_resetar_banco(args: argparse.Namespace) -> int:
     repo = RepositorioDistDFeSQLite(args.caminho_db)
+    if not args.confirmar_sim and not _confirmar_reset(repo.caminho_db):
+        print("Cancelado: nada foi apagado.", file=sys.stderr)
+        return 1
     resultado = repo.resetar_banco_completo()
     if args.saida_json:
         payload = {
