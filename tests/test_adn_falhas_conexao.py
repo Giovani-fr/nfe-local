@@ -371,9 +371,9 @@ class TestCliDiagnosticoFalhas:
         assert (d["tentativas_realizadas"], d["tentativas_com_falha"]) == (2, 1)
         assert d["falhas_conexao"][0]["etapa"] == "leitura da resposta"
 
-    def test_tentativas_acima_de_3_e_rejeitado_pelo_parser(self, capsys):
+    def test_tentativas_acima_de_5_e_rejeitado_pelo_parser(self, capsys):
         with pytest.raises(SystemExit) as exc:
-            cli.main(["sincronizar-adn", "--diagnostico", "--tentativas", "4"])
+            cli.main(["sincronizar-adn", "--diagnostico", "--tentativas", "6"])
         assert exc.value.code == 2
 
     def test_nao_toca_no_banco_mesmo_com_falha(self, certificado_cadastrado, monkeypatch, tmp_path):  # noqa: F811
