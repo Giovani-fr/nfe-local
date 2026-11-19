@@ -34,7 +34,7 @@ from reports.assistente_lote import (
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
-from sefaz.adn import ClienteADN, ErroBloqueioADN, RespostaADN
+from sefaz.adn import ClienteADN, ErroBloqueioADN, RespostaADN, resolver_tentativas
 from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
 from sefaz.adn_sync import ResumoSyncADN, sincronizar_adn
 from sefaz.cert_a1 import (
@@ -1063,6 +1063,9 @@ def sincronizar_recebidas_adn(
     ambiente: int | None = Query(default=None, description="1=Produção, 2=Produção restrita"),
     demo: bool = Query(default=False, description="Usa NFS-e sintéticas, sem rede"),
     max_paginas: int = Query(default=20, ge=1, le=200),
+    tentativas: int | None = Query(
+        default=None, ge=1, le=5, description="Tentativas por consulta se a conexão falhar"
+    ),
 ) -> ResumoSyncADN:
     """Busca NFS-e (emitidas e tomadas) no ADN Nacional. Só roda quando chamado pelo usuário."""
     cert_dir = obter_diretorio_certificado()
@@ -1071,11 +1074,18 @@ def sincronizar_recebidas_adn(
         resolver_ambiente_sefaz(ambiente) if ambiente is not None else config_local.ambiente
     )
     repo = obter_repositorio_recebidas()
+    try:
+        n_tentativas = resolver_tentativas(tentativas)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    esperas: tuple[float, ...] | None = None
 
     if demo:
         consultar_fn, documento_alvo, espera = criar_consultor_demo(amb), CNPJ_DEMO, 0.0
+        esperas = (0, 0, 0)
     elif _CONSULTOR_ADN is not None:
         (consultar_fn, documento_alvo), espera = _CONSULTOR_ADN, 0.0
+        esperas = (0, 0, 0)
     else:
         try:
             pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
@@ -1100,6 +1110,8 @@ def sincronizar_recebidas_adn(
             ambiente=amb,
             max_paginas=max_paginas,
             espera_segundos=espera,
+            tentativas=n_tentativas,
+            **({"esperas_retentativa": esperas} if esperas is not None else {}),
         )
     except ErroBloqueioADN as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc

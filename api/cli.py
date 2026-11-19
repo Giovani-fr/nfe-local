@@ -13,7 +13,7 @@ from models.fiscal import ResultadoAnalise
 from parsers.detector import iterar_lote
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
-from sefaz.adn import ClienteADN, ErroBloqueioADN
+from sefaz.adn import ClienteADN, ErroBloqueioADN, resolver_tentativas
 from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
 from sefaz.adn_diagnostico import DiagnosticoADN, diagnosticar_adn
 from sefaz.adn_sync import MAX_PAGINAS_PADRAO, ResumoSyncADN, sincronizar_adn
@@ -178,9 +178,12 @@ def criar_parser() -> argparse.ArgumentParser:
     parser_adn.add_argument(
         "--tentativas",
         type=int,
-        choices=(1, 2, 3),
-        default=1,
-        help="Só com --diagnostico: tentativas se a conexão falhar (1 a 3; padrão 1).",
+        choices=(1, 2, 3, 4, 5),
+        default=None,
+        help=(
+            "Tentativas por consulta quando a CONEXÃO falha (1 a 5; padrão 3, ou "
+            "NFE_ADN_TENTATIVAS). Com --diagnostico o padrão é 1 e o máximo 3."
+        ),
     )
     parser_adn.add_argument(
         "--timeout",
@@ -427,6 +430,9 @@ def _imprimir_resumo_adn_terminal(resumo: ResumoSyncADN) -> None:
     for papel, qtd in sorted(resumo.papeis.items()):
         print(f"  - Papel {papel}".ljust(34) + f": {qtd}")
     print(f"Cursor NSU (ADN)                : {resumo.cursor.ultimo_nsu}")
+    print(f"Tentativas de conexão usadas    : {resumo.tentativas_usadas}")
+    for falha in resumo.falhas_conexao:
+        print(f"  - Falha de conexão            : {falha}")
     print(f"Encerrado por                   : {resumo.encerrado_por}")
     if resumo.mensagem:
         print(f"Mensagem                        : {resumo.mensagem}")
@@ -506,7 +512,7 @@ def _executar_diagnostico_adn(args: argparse.Namespace) -> int:
     except (ErroCertificadoA1, ValueError) as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
-    diag = diagnosticar_adn(cliente, tentativas=args.tentativas)
+    diag = diagnosticar_adn(cliente, tentativas=args.tentativas or 1)
     if args.saida_json:
         print(json.dumps(diag.model_dump(mode="json"), ensure_ascii=False, indent=2))
     else:
@@ -517,6 +523,11 @@ def _executar_diagnostico_adn(args: argparse.Namespace) -> int:
 def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
     if args.diagnostico:
         return _executar_diagnostico_adn(args)
+    try:
+        tentativas = resolver_tentativas(args.tentativas)
+    except ValueError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
     repo = RepositorioDistDFeSQLite(args.caminho_db)
 
     if args.demo:
@@ -528,6 +539,8 @@ def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
             ambiente=amb,
             espera_segundos=0,
             max_paginas=args.max_paginas,
+            tentativas=tentativas,
+            esperas_retentativa=(0, 0, 0),
         )
     else:
         try:
@@ -548,6 +561,7 @@ def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
                 documento_alvo=cliente.cnpj_consulta,
                 ambiente=amb,
                 max_paginas=args.max_paginas,
+                tentativas=tentativas,
             )
         except (ErroCertificadoA1, ErroBloqueioADN, ValueError) as exc:
             print(f"Erro: {exc}", file=sys.stderr)
