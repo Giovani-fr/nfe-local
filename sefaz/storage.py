@@ -5,13 +5,13 @@ from __future__ import annotations
 import gzip
 import os
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from models.fiscal import (
     AlertaValidacao,
@@ -35,7 +35,13 @@ from sefaz.descompactador import (
     DocumentoDistDFeProcessado,
     processar_lote_doc_zip,
 )
-from sefaz.dist_dfe import RespostaDistDFe, formatar_nsu
+from sefaz.dist_dfe import (
+    ESPERAS_RETENTATIVA_PADRAO,
+    TENTATIVAS_PADRAO,
+    RepetidorConsultaSEFAZ,
+    RespostaDistDFe,
+    formatar_nsu,
+)
 
 CAMINHO_DB_PADRAO = "data/nfe_recebidas.db"
 StatusPersistenciaDoc = Literal["NOVA", "ATUALIZADA", "EVENTO", "IGNORADA"]
@@ -253,6 +259,9 @@ class ResumoExecucaoSync(BaseModel):
     bloqueado_656: bool = False
     fila_zerada: bool = False
     adn_novas_notas: int = 0
+    tentativas_usadas: int = 0
+    falhas_conexao: list[str] = Field(default_factory=list)
+    erro: str | None = None
 
 
 class ResumoHistoricoLote(BaseModel):
@@ -1548,13 +1557,22 @@ def sincronizar_dist_dfe(
     ambiente: Literal[1, 2] = 2,
     max_paginas: int = 20,
     relogio_fn: Callable[[], datetime] | None = None,
+    tentativas: int = TENTATIVAS_PADRAO,
+    esperas_retentativa: Sequence[float] = ESPERAS_RETENTATIVA_PADRAO,
+    dormir_fn: Callable[[float], None] | None = None,
 ) -> ResumoExecucaoSync:
     """Executa uma rodada completa de sincronização `DistDFe` persistindo NSU, notas e logs."""
     obter_agora = relogio_fn if relogio_fn is not None else (lambda: datetime.now(UTC))
     cursor_inicial = repo.obter_cursor(ambiente=ambiente)
+    repetidor = RepetidorConsultaSEFAZ(
+        consultar_fn,
+        tentativas=tentativas,
+        esperas=esperas_retentativa,
+        dormir_fn=dormir_fn,
+    )
 
     resultado_loop = executar_loop_nsu(
-        consultar_fn=consultar_fn,
+        consultar_fn=repetidor,
         cursor_inicial=cursor_inicial,
         max_paginas=max_paginas,
         relogio_fn=obter_agora,
@@ -1580,14 +1598,24 @@ def sincronizar_dist_dfe(
         elif status == "EVENTO":
             eventos += 1
 
+    erro = resultado_loop.erro_conexao
+    if erro is not None:
+        falha = resultado_loop.falha_conexao
+        cstat_log = "TIMEOUT" if (falha and falha.tempo_esgotado) else "CONEXAO"
+        motivo_log = erro[:500]
+    else:
+        cstat_log = resultado_loop.cursor.ultimo_cstat or ""
+        motivo_log = resultado_loop.cursor.ultimo_motivo or ""
     repo.registrar_log_sync(
         ambiente=ambiente,
-        cstat=resultado_loop.cursor.ultimo_cstat or "",
-        motivo=resultado_loop.cursor.ultimo_motivo or "",
+        cstat=cstat_log,
+        motivo=motivo_log,
         paginas=resultado_loop.paginas_consultadas,
         novos_docs=len(processados),
         ultimo_nsu=resultado_loop.cursor.ultimo_nsu,
         ts=agora_ref,
+        tentativas=max(1, repetidor.tentativas_usadas),
+        falhas_conexao="; ".join(repetidor.falhas),
     )
 
     return ResumoExecucaoSync(
@@ -1599,4 +1627,7 @@ def sincronizar_dist_dfe(
         eventos_registrados=eventos,
         bloqueado_656=resultado_loop.bloqueado_656,
         fila_zerada=resultado_loop.fila_zerada,
+        tentativas_usadas=repetidor.tentativas_usadas,
+        falhas_conexao=list(repetidor.falhas),
+        erro=erro,
     )

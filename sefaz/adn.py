@@ -114,7 +114,7 @@ def _codigo_so(cadeia: list[tuple[BaseException, int]]) -> str | None:
     return None
 
 
-def analisar_falha_conexao(exc: BaseException) -> FalhaConexao:
+def analisar_falha_conexao(exc: BaseException, servico: str = "o ADN") -> FalhaConexao:
     """Classifica a falha: etapa, exceção raiz, código do SO, encerramento/timeout e orientação."""
     cadeia = _cadeia_excecoes(exc)
     nomes: set[str] = set()
@@ -188,6 +188,7 @@ def analisar_falha_conexao(exc: BaseException) -> FalhaConexao:
             "Falha de conexão não classificada. Tente novamente, em outra rede se possível."
         )
 
+    orientacao = orientacao.replace("o ADN", servico)
     return FalhaConexao(
         etapa=etapa,
         excecao_raiz=type(raiz).__name__,

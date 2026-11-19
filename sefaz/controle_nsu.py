@@ -9,7 +9,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sefaz.dist_dfe import ItemDocZip, RespostaDistDFe, formatar_nsu
+from sefaz.adn import FalhaConexao
+from sefaz.dist_dfe import (
+    ErroConexaoSEFAZ,
+    ItemDocZip,
+    RespostaDistDFe,
+    formatar_nsu,
+)
 
 CSTAT_DOCS_LOCALIZADOS = "138"
 CSTAT_NENHUM_DOC = "137"
@@ -62,6 +68,8 @@ class ResultadoSincronizacaoNSU(BaseModel):
     fila_zerada: bool = False
     bloqueado_656: bool = False
     interrompido_por_erro: bool = False
+    erro_conexao: str | None = None
+    falha_conexao: FalhaConexao | None = None
 
 
 def _normalizar_utc(dt: datetime | None) -> datetime:
@@ -174,10 +182,17 @@ def executar_loop_nsu(
     fila_zerada = False
     bloqueado_656 = False
     interrompido_por_erro = False
+    erro_conexao: ErroConexaoSEFAZ | None = None
 
     for _ in range(limite_paginas):
         nsu_anterior_int = _nsu_para_int(cursor.ultimo_nsu)
-        resposta = consultar_fn(cursor.ultimo_nsu)
+        try:
+            resposta = consultar_fn(cursor.ultimo_nsu)
+        except ErroConexaoSEFAZ as exc:
+            # Página que falhou: o cursor NÃO avança nem é salvo; o que veio antes é preservado.
+            erro_conexao = exc
+            interrompido_por_erro = True
+            break
         agora = obter_agora()
 
         cursor = aplicar_resposta_no_cursor(
@@ -225,4 +240,6 @@ def executar_loop_nsu(
         fila_zerada=fila_zerada,
         bloqueado_656=bloqueado_656,
         interrompido_por_erro=interrompido_por_erro,
+        erro_conexao=str(erro_conexao) if erro_conexao else None,
+        falha_conexao=erro_conexao.falha if erro_conexao else None,
     )
