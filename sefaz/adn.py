@@ -35,7 +35,13 @@ ESPERA_PADRAO_LIMITE_SEGUNDOS = 3600
 ESPERA_PADRAO_INDISPONIVEL_SEGUNDOS = 600
 
 Papel = Literal["PRESTADOR", "TOMADOR", "INTERMEDIARIO"]
-CategoriaErroADN = Literal["LIMITE", "INDISPONIVEL", "CONEXAO", "RESPOSTA_INVALIDA", "ACESSO"]
+CategoriaErroADN = Literal[
+    "LIMITE", "INDISPONIVEL", "CONEXAO", "RESPOSTA_INVALIDA", "ACESSO", "ENDERECO"
+]
+
+VARIAVEL_URL_BASE = "NFE_ADN_URL_BASE"
+# Códigos documentados de "nenhum documento" para GET /DFe/{NSU} (HTTP 404).
+CODIGOS_FILA_ZERADA = frozenset({"E2220", "E2230"})
 
 
 class ErroADN(Exception):
@@ -323,14 +329,24 @@ class ClienteADN:
         self._ambiente: Literal[1, 2] = 1 if ambiente == 1 else 2
         self._sessao_http = sessao_http
         self._timeout = timeout_segundos
-        self._base_url = (
-            base_url or (URL_ADN_PRODUCAO if self._ambiente == 1 else URL_ADN_HOMOLOGACAO)
-        ).rstrip("/")
+        self._base_url = resolver_url_base(self._ambiente, base_url)
         self._cnpj = resolver_cnpj_consulta(cnpj_consulta, self._metadados.documento)
 
     @property
     def cnpj_consulta(self) -> str:
         return self._cnpj
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def metadados_certificado(self):
+        return self._metadados
+
+    def url_nsu(self, nsu: int) -> str:
+        """URL do recurso consultado, sem query string (nada sensível)."""
+        return f"{self._base_url}/DFe/{int(nsu)}"
 
     @property
     def ambiente(self) -> Literal[1, 2]:
@@ -347,14 +363,16 @@ class ClienteADN:
         )
         return sessao
 
-    def consultar_nsu(self, nsu: int, *, lote: bool = True) -> RespostaADN:
-        """Busca documentos com NSU maior que `nsu` (exclusivo)."""
-        url = f"{self._base_url}/DFe/{int(nsu)}"
+    def requisitar(self, nsu: int, *, lote: bool = True) -> tuple[int, bytes, int | None]:
+        """Uma chamada `GET /DFe/{NSU}`: devolve `(http_status, corpo, retry_after)` crus.
+
+        Levanta `ErroADN(CONEXAO)` se a conexão (ou o TLS) falhar antes de haver resposta HTTP.
+        """
         params = {"cnpjConsulta": self._cnpj, "lote": "true" if lote else "false"}
         sessao = self._sessao_http if self._sessao_http is not None else self._criar_sessao_mtls()
         try:
             resp = sessao.get(
-                url,
+                self.url_nsu(nsu),
                 params=params,
                 headers={"Accept": "application/json, text/plain, */*"},
                 timeout=self._timeout,
@@ -373,9 +391,12 @@ class ClienteADN:
 
         status = int(getattr(resp, "status_code", 0))
         corpo = getattr(resp, "content", b"") or str(getattr(resp, "text", "")).encode("utf-8")
-        retry_apos = _segundos_retry_after(
-            getattr(resp, "headers", {}).get("Retry-After") if hasattr(resp, "headers") else None
-        )
+        cabecalhos = getattr(resp, "headers", None) or {}
+        return status, corpo, _segundos_retry_after(cabecalhos.get("Retry-After"))
+
+    def consultar_nsu(self, nsu: int, *, lote: bool = True) -> RespostaADN:
+        """Busca documentos com NSU maior que `nsu` (exclusivo)."""
+        status, corpo, retry_apos = self.requisitar(nsu, lote=lote)
 
         if status == 429:
             raise ErroADN(
@@ -397,17 +418,61 @@ class ClienteADN:
                 categoria="ACESSO",
                 http_status=status,
             )
-        if status in (200, 400, 404):
-            if status == 404 and not corpo.strip():
-                return RespostaADN(
-                    http_status=404, status_processamento="NENHUM_DOCUMENTO_LOCALIZADO"
+        if status == 404:
+            if not eh_resposta_fila_zerada(corpo):
+                raise ErroADN(
+                    mensagem_endereco_nao_encontrado(self.url_nsu(nsu)),
+                    categoria="ENDERECO",
+                    http_status=404,
                 )
+            resposta = parse_resposta_adn(404, corpo)
+            resposta.status_processamento = "NENHUM_DOCUMENTO_LOCALIZADO"
+            return resposta
+        if status in (200, 400):
             return parse_resposta_adn(status, corpo)
         raise ErroADN(
             f"O ADN respondeu com HTTP {status}, que não consta na documentação.",
             categoria="RESPOSTA_INVALIDA",
             http_status=status,
         )
+
+
+def eh_resposta_fila_zerada(corpo: bytes | str) -> bool:
+    """`True` só se o 404 trouxer JSON válido com NENHUM_DOCUMENTO_LOCALIZADO ou E2220/E2230."""
+    texto_corpo = corpo.decode("utf-8", errors="replace") if isinstance(corpo, bytes) else corpo
+    try:
+        dados = json.loads(texto_corpo)
+    except ValueError:
+        return False
+    if not isinstance(dados, dict):
+        return False
+    if str(_chave_ci(dados, "StatusProcessamento") or "").upper() == "NENHUM_DOCUMENTO_LOCALIZADO":
+        return True
+    return any(
+        m.codigo.strip().upper() in CODIGOS_FILA_ZERADA
+        for m in _mensagens(_chave_ci(dados, "Erros"))
+    )
+
+
+def mensagem_endereco_nao_encontrado(url: str) -> str:
+    return (
+        "O endereço do ADN não foi encontrado (HTTP 404 sem a resposta esperada). "
+        f"A URL base pode estar incorreta: confira {VARIAVEL_URL_BASE}. URL usada: {url}"
+    )
+
+
+def resolver_url_base(ambiente: Literal[1, 2], explicita: str | None = None) -> str:
+    """URL base: argumento (`--url-base`), `NFE_ADN_URL_BASE` ou a constante do ambiente."""
+    for candidata in (explicita, os.environ.get(VARIAVEL_URL_BASE)):
+        if candidata and candidata.strip():
+            limpa = candidata.strip().rstrip("/")
+            if not limpa.lower().startswith("https://") or len(limpa) <= len("https://"):
+                raise ValueError(
+                    f"A URL base do ADN deve começar com https:// (conferir {VARIAVEL_URL_BASE} "
+                    "ou --url-base)."
+                )
+            return limpa
+    return URL_ADN_PRODUCAO if ambiente == 1 else URL_ADN_HOMOLOGACAO
 
 
 def resolver_cnpj_consulta(explicito: str | None, documento_certificado: str) -> str:
