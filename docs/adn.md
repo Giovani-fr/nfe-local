@@ -21,16 +21,26 @@ O Swagger **não traz `servers`**; os caminhos são relativos. Como a documenta�
 | Produção restrita (homologação) | `https://adn.producaorestrita.nfse.gov.br/contribuintes` |
 | Produção | `https://adn.nfse.gov.br/contribuintes` |
 
-> **Não confirmado:** que o prefixo `/contribuintes` faz parte da URL da API (e não só da
-> documentação). A primeira chamada real confirma. Se estiver errado, a URL é configurável sem
-> mexer no código: variável `NFE_ADN_URL_BASE` ou `--url-base` na CLI (precisa começar com
+> **Confirmado em uso real (19/11/2026):** o diagnóstico (`nfe-local sincronizar-adn
+> --diagnostico`) funcionou nos **dois** ambientes com essas bases, ou seja, o prefixo
+> `/contribuintes` faz parte da URL da API. Em produção: TLS ok, HTTP 200,
+> `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta = CnpjBase` e 50 itens no primeiro lote. Houve uma falha de
+> conexão transitória numa tentativa anterior, de causa não identificada. **A sincronização completa
+> (várias páginas, gravação no banco) ainda não foi confirmada em produção pelo usuário.** A URL
+> continua configurável sem mexer no código: variável `NFE_ADN_URL_BASE` ou `--url-base` na CLI (precisa começar com
 > `https://`; a opção vale mais que a variável, que vale mais que o padrão do ambiente).
-> A produção foi assumida com o mesmo contrato da produção restrita (o Swagger dela não foi baixado).
+> O Swagger de produção não foi baixado: o contrato de produção foi assumido igual ao da produção
+> restrita, e o diagnóstico em produção (acima) é consistente com isso.
 
 ## Autenticação
 
 TLS 1.2 ou superior com **autenticação mútua**; certificado ICP-Brasil **A1 ou A3**, CNPJ ou CPF,
-com "Autenticação do Cliente". Este projeto usa só A1 (`.pfx`) lido em memória.
+com "Autenticação do Cliente". Este projeto usa só A1 (`.pfx`): lido e validado em memória
+com `cryptography`; para o mTLS, o `requests-pkcs12` (1.27) grava, a cada nova sessão HTTP,
+um **arquivo temporário** na pasta temporária do sistema com a chave privada em PEM PKCS#8
+**cifrada por senha aleatória de 128 bits** (só em memória) mais os certificados públicos, carrega-o
+no contexto TLS e o apaga em seguida (milissegundos; `os.remove` simples, sem sobrescrita).
+Ver o README ("Chave privada") e a tarefa 28 do backlog.
 Formato das mensagens: JSON. Documentos: XML 1.0, UTF-8, assinado (XMLDSIG).
 Compactação dos XMLs: **GZip com representação base64** (`ArquivoXml`).
 
