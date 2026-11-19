@@ -14,8 +14,8 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | Tabela de notas (ordenável, paginada) | Resumo & impostos |
 | :---: | :---: |
 | ![Tabela de notas](docs/prints/tabela-notas.png) | ![Painel gerencial](docs/prints/painel-gerencial.png) |
-| **SEFAZ e ADN (NF-e e NFS-e, com Origem e Papel)** | **Escopo "Tudo" (acervo + SEFAZ + ADN)** |
-| ![SEFAZ e ADN](docs/prints/sefaz-adn.png) | ![Escopo Tudo](docs/prints/escopo-tudo.png) |
+| **Buscar notas (SEFAZ e Portal Nacional): NF-e de produto e NFS-e de serviço, com Origem e Papel** | **Escopo "Tudo" (acervo + SEFAZ + ADN)** |
+| ![Buscar notas (SEFAZ e Portal Nacional)](docs/prints/sefaz-adn.png) | ![Escopo Tudo](docs/prints/escopo-tudo.png) |
 | **Diagnóstico do ADN (somente leitura)** | **DANFE oficial (NF-e 55)** |
 | ![Diagnóstico do ADN](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
@@ -36,7 +36,15 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | **NFC-e (modelo 65)** | **Somente upload** | — | Nem a SEFAZ nem o ADN são consultados para NFC-e. |
 | **Qualquer outro XML** (evento avulso, NFS-e municipal legada etc.) | **Somente upload** | — | NFS-e de layout municipal legado (ABRASF etc.) é rejeitada com alerta. |
 
-A aba **SEFAZ e ADN** mostra o que foi buscado automaticamente (Tipo, Origem, Papel, situação, espelho e XML). O escopo **"Tudo (acervo + SEFAZ + ADN)"**, na primeira aba, soma uploads, SEFAZ e ADN **sem duplicar chaves** (em chave repetida vale o upload) e os KPIs e o resumo contam NF-e, NFC-e e NFS-e. As notas do SEFAZ/ADN entram nessa visão sem revalidação e **sem itens e impostos por item** (só os totais).
+A aba **Buscar notas (SEFAZ e Portal Nacional)** mostra o que foi buscado automaticamente (Tipo, Origem, Papel, situação, espelho e XML), com **cartões por tipo** (**NF-e (produto)**, **NFS-e (serviço)** e **NFC-e (consumidor)**: quantidade, valor e emitidas versus recebidas), um **seletor de tipo** com a contagem e o valor de cada um e filtros rápidos (*Só emitidas*, *Só tomadas*, *Só NF-e*, *Só NFS-e*). Os nomes técnicos (SEFAZ, ADN, NSU, `NFeDistribuicaoDFe`) aparecem como dica ao passar o mouse. O **Portal Nacional** (ADN) só traz NFS-e do **Padrão Nacional**. O escopo **"Tudo (acervo + SEFAZ + ADN)"**, na primeira aba, soma uploads, SEFAZ e ADN **sem duplicar chaves** (em chave repetida vale o upload) e os KPIs e o resumo contam NF-e, NFC-e e NFS-e. As notas do SEFAZ/ADN entram nessa visão sem revalidação e **sem itens e impostos por item** (só os totais).
+
+### O que entra nas somas e nos KPIs
+
+- **Valor total (autorizadas)** soma NF-e (produto), NFS-e (serviço) e NFC-e (consumidor) **autorizadas**, sem repetir a mesma chave, e é mostrado **separado por tipo e por papel** (emitidas versus recebidas/tomadas, e intermediárias). O resumo `resNFe` conta na NF-e.
+- **Notas canceladas e eventos ficam fora das somas de valor** e aparecem à parte, com a contagem (e o valor das canceladas que não foi somado).
+- **Papel** compara o CNPJ de consulta (o do certificado) com o emitente/prestador e o destinatário/tomador; sem esse CNPJ de referência a nota entra em "Sem papel". O critério aparece em uma dica (ⓘ) na tela.
+- No painel **Resumo**, a lista **XMLs ilegíveis (ERRO_XML)** mostra o arquivo, o código e o motivo, com filtro por texto e por motivo.
+- A aba **Resumo** das planilhas exportadas usa o mesmo cálculo e também deixa as canceladas de fora (a aba **Notas** continua listando todas as notas).
 
 ---
 
@@ -84,7 +92,7 @@ A aba **SEFAZ e ADN** mostra o que foi buscado automaticamente (Tipo, Origem, Pa
    - Consulta SOAP 1.2 com mTLS usando Certificado Digital A1 (`.pfx`), descompacta lotes `<docZip>` (`base64 + gzip`), armazena no SQLite local e disponibiliza a aba **"🏛️ SEFAZ e ADN"** com filtros por emitente, período, faixa de valor, categoria e situação.
 7. **Sincronização de NFS-e pelo ADN Nacional (emitidas e tomadas — Fase 4):**
    - Busca, no mesmo fluxo, as NFS-e em que o CNPJ é **prestador, tomador ou intermediário**, com cursor de NSU próprio, repetição automática só em falha de conexão e diagnóstico somente leitura. Veja a seção **Fase 4** abaixo e `docs/adn.md`.
-8. **Visão única:** a aba **SEFAZ e ADN** (botões *Sincronizar NF-e*, *Sincronizar NFS-e*, *Sincronizar tudo* e *Diagnóstico do ADN*) e o escopo **Tudo** da primeira aba mostram tudo o que o CNPJ emitiu ou recebeu (produto, serviço e consumidor).
+8. **Visão única:** a aba **Buscar notas (SEFAZ e Portal Nacional)** (botões *Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* e *Diagnóstico do ADN*) e o escopo **Tudo** da primeira aba mostram tudo o que o CNPJ emitiu ou recebeu (produto, serviço e consumidor).
 
 ---
 
@@ -92,7 +100,7 @@ A aba **SEFAZ e ADN** mostra o que foi buscado automaticamente (Tipo, Origem, Pa
 
 ### 1. Segurança do Certificado Digital e-CNPJ A1 (`.pfx`)
 - **Cadastro Visual na Interface Web ou via Variáveis de Ambiente (`.env`):**
-  - Pela interface web (aba **🏛️ SEFAZ e ADN** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`certificado.pfx` na pasta segura descrita em **Onde ficam o certificado e a senha**, fora do projeto).
+  - Pela interface web (aba **🏛️ Buscar notas (SEFAZ e Portal Nacional)** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`certificado.pfx` na pasta segura descrita em **Onde ficam o certificado e a senha**, fora do projeto).
   - Alternativamente, para servidores headless ou automação via CLI/Docker, configure via `.env`:
   ```ini
   NFE_CERT_PATH=C:/caminho/seguro/empresa_a1.pfx
@@ -164,10 +172,10 @@ O **ADN** (Ambiente de Dados Nacional da NFS-e) distribui as NFS-e do Padrão Na
 
 ### Como testar a chamada real (passo a passo)
 
-1. **Cadastre o certificado A1** (aba **SEFAZ e ADN** → *Cadastrar / Trocar Certificado*, ou `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
+1. **Cadastre o certificado A1** (aba **Buscar notas (SEFAZ e Portal Nacional)** → *Cadastrar / Trocar Certificado*, ou `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
 2. **Diagnóstico (não grava nada):** botão **🩺 Diagnóstico do ADN** ou `nfe-local sincronizar-adn --diagnostico --ambiente 2` (depois `--ambiente 1`). Ele faz **uma** consulta de leitura e mostra: URL base, CNPJ **mascarado**, validade do certificado, resultado do TLS (versão e cifrador), HTTP, `StatusProcessamento`, `TipoConsulta`, erros/alertas e a contagem de itens por tipo. Em falha de conexão, mostra a etapa, a exceção raiz, o código do sistema e o que fazer, sem URL com parâmetros, CNPJ, caminho do certificado, senha nem XML.
 3. **Sincronização de uma página:** `nfe-local sincronizar-adn --max-paginas 1 --db <um banco de teste>`.
-4. **Sincronização completa:** `nfe-local sincronizar-adn` (ou **Sincronizar NFS-e (ADN)** / **Sincronizar tudo** no painel). Se parar por `LIMITE_PAGINAS`, rode de novo: continua do cursor.
+4. **Sincronização completa:** `nfe-local sincronizar-adn` (ou **Buscar NFS-e de serviço (Portal Nacional)** / **Buscar tudo** no painel). Se parar por `LIMITE_PAGINAS`, rode de novo: continua do cursor.
 
 > **O que já foi testado em uso real (19/11/2026):** o diagnóstico nos dois ambientes, a sincronização de **uma página** em produção (50 NFS-e novas) e a sincronização **completa** em produção: 10 páginas, fila zerada, 411 documentos (391 NFS-e novas e 20 eventos), papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. O papel de intermediário vem de uma leitura do XML que o Swagger não confirma.
 
@@ -264,7 +272,7 @@ Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`]
    - Em seguida cria um ambiente virtual isolado fora do OneDrive (`%USERPROFILE%\venvs\nfe-local`), instala as dependências, roda `pip install -e .` (registra o comando `nfe-local` na pasta `Scripts` desse ambiente) e cria o atalho **"Visualizador NF-e Local"** na Área de Trabalho. Tudo fica registrado em `instalar.log`.
 2. Dê dois cliques no atalho da Área de Trabalho ou em **`iniciar.bat`**.
    - O navegador abrirá automaticamente em `http://127.0.0.1:8765`.
-   - Na aba **Analisador de Lotes**, clique em **"Carregar Lote de Demonstração"**; na aba **SEFAZ e ADN**, clique em **"🧪 Carregar Recebidas de Demonstração"** para testar os filtros sem precisar de certificado A1 real.
+   - Na aba **Analisador de Lotes**, clique em **"Carregar Lote de Demonstração"**; na aba **Buscar notas (SEFAZ e Portal Nacional)**, clique em **"🧪 Carregar Recebidas de Demonstração"** para testar os filtros sem precisar de certificado A1 real.
 
 ### Opção 2: Via Linha de Comando (CLI)
 
@@ -401,6 +409,7 @@ Nesta tabela, **"Tipo"** separa o que foi só **decisão de projeto** do que foi
 | Papel Emitida/Recebida | Comparação do CNPJ consultado com as partes da nota; sem referência, "—". | O papel não vem pronto do ADN; calcular na leitura evita regravar linhas antigas. | Decisão de projeto |
 | Demonstração | Carrega as NFS-e sintéticas **sem tocar** no cursor nem no `sync_log`. | Clicar em "demo" num banco real não pode atrapalhar a sincronização verdadeira. | Decisão de projeto |
 | Visão "Tudo" | Soma uploads, SEFAZ e ADN sem ler XML (só colunas); sem itens/impostos das notas buscadas. | Reprocessar 15 mil XMLs a cada clique seria lento. | Decisão de projeto (limitação assumida) |
+| Somas e KPIs | Valor total sem canceladas e sem eventos, separado por tipo e por papel; ERRO_XML listado com o motivo. | Em revisão de uso, o "Valor total das notas" somava emitidas com recebidas e incluía canceladas. | **Correção encontrada em revisão de uso** |
 | Arquivo temporário do mTLS | O `requests-pkcs12` grava por instantes um `.pem` temporário com a chave cifrada. | A documentação dizia que nada era gravado em disco; foi corrigida (tarefa 28 avalia eliminar o arquivo). | **Correção de documentação** |
 
 ---

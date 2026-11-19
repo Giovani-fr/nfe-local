@@ -14,8 +14,8 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | Invoice table (sortable, paginated) | Summary & taxes |
 | :---: | :---: |
 | ![Invoice table](docs/prints/tabela-notas.png) | ![Management dashboard](docs/prints/painel-gerencial.png) |
-| **SEFAZ and ADN (NF-e and NFS-e, with Origin and Role)** | **"Everything" scope (archive + SEFAZ + ADN)** |
-| ![SEFAZ and ADN](docs/prints/sefaz-adn.png) | ![Everything scope](docs/prints/escopo-tudo.png) |
+| **Buscar notas (SEFAZ and Portal Nacional): product NF-e and service NFS-e, with Origin and Role** | **"Everything" scope (archive + SEFAZ + ADN)** |
+| ![Buscar notas (SEFAZ and Portal Nacional)](docs/prints/sefaz-adn.png) | ![Everything scope](docs/prints/escopo-tudo.png) |
 | **ADN diagnostic (read-only)** | **Official DANFE (NF-e 55)** |
 | ![ADN diagnostic](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
@@ -36,7 +36,15 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | **NFC-e (model 65)** | **Upload only** | — | Neither SEFAZ nor the ADN is queried for NFC-e. |
 | **Any other XML** (loose event, legacy municipal NFS-e, etc.) | **Upload only** | — | Legacy municipal NFS-e layouts (ABRASF, etc.) are rejected with an alert. |
 
-The **SEFAZ e ADN** tab shows what was fetched automatically (Type, Origin, Role, status, mirror and XML). The **"Tudo (acervo + SEFAZ + ADN)"** scope on the first tab adds uploads, SEFAZ and ADN **without duplicating keys** (on a repeated key the upload wins), and the KPIs and summary count NF-e, NFC-e and NFS-e. Invoices from SEFAZ/ADN enter that view without revalidation and **without per-item lines or taxes** (totals only).
+The **Buscar notas (SEFAZ e Portal Nacional)** tab shows what was fetched automatically (Type, Origin, Role, status, mirror and XML), with **cards per type** (**NF-e (produto)**, **NFS-e (serviço)** and **NFC-e (consumidor)**: count, value and issued versus received), a **type selector** showing each type's count and value, and quick filters (*Só emitidas*, *Só tomadas*, *Só NF-e*, *Só NFS-e*). The technical names (SEFAZ, ADN, NSU, `NFeDistribuicaoDFe`) appear as hover tips. The **Portal Nacional** (ADN) only brings **National Standard** NFS-e. The **"Tudo (acervo + SEFAZ + ADN)"** scope on the first tab adds uploads, SEFAZ and ADN **without duplicating keys** (on a repeated key the upload wins), and the KPIs and summary count NF-e, NFC-e and NFS-e. Invoices from SEFAZ/ADN enter that view without revalidation and **without per-item lines or taxes** (totals only).
+
+### What goes into the sums and KPIs
+
+- **Valor total (autorizadas)** adds **authorized** NF-e (product), NFS-e (service) and NFC-e (consumer), without repeating the same key, and is shown **split by type and by role** (issued versus received/taken, and intermediary). The `resNFe` summary counts as NF-e.
+- **Cancelled invoices and events are left out of the value sums** and shown apart, with their count (and the cancelled value that was not summed).
+- **Role** compares the queried CNPJ (the certificate's) with the issuer/provider and the recipient/taker; without that reference CNPJ the invoice falls under "Sem papel". The criterion appears in a tip (ⓘ) on screen.
+- In the **Resumo** panel, the **XMLs ilegíveis (ERRO_XML)** list shows the file, code and reason, filterable by text and by reason.
+- The **Resumo** sheet of exported spreadsheets uses the same calculation and also leaves cancelled invoices out (the **Notas** sheet still lists every invoice).
 
 ---
 
@@ -84,7 +92,7 @@ The **SEFAZ e ADN** tab shows what was fetched automatically (Type, Origin, Role
    - Performs SOAP 1.2 queries with mTLS using an ICP-Brasil A1 certificate (`.pfx`), decompresses `<docZip>` payloads (`base64 + gzip`), persists records in local SQLite, and provides the **"🏛️ SEFAZ e ADN"** tab filterable by issuer, date range, amount, category, and status.
 7. **NFS-e Synchronization via the National ADN (issued and received — Phase 4):**
    - Fetches, in the same flow, NFS-e where the CNPJ is **provider, taker or intermediary**, with its own NSU cursor, automatic retries only on connection failures and a read-only diagnostic. See the **Phase 4** section below and `docs/adn.md`.
-8. **Single view:** the **SEFAZ e ADN** tab (*Sincronizar NF-e*, *Sincronizar NFS-e*, *Sincronizar tudo* and *Diagnóstico do ADN* buttons) and the **Tudo** scope on the first tab show everything the CNPJ issued or received (product, service and consumer).
+8. **Single view:** the **Buscar notas (SEFAZ e Portal Nacional)** tab (*Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* and *Diagnóstico do ADN* buttons) and the **Tudo** scope on the first tab show everything the CNPJ issued or received (product, service and consumer).
 
 ---
 
@@ -92,7 +100,7 @@ The **SEFAZ e ADN** tab shows what was fetched automatically (Type, Origin, Role
 
 ### 1. Security of the ICP-Brasil e-CNPJ A1 Certificate (`.pfx`)
 - **Visual Web UI Configuration or Environment Variables (`.env`):**
-  - Directly from the web interface (**🏛️ SEFAZ e ADN** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`certificado.pfx` in the safe folder described in **Where the certificate and password are stored**, outside the project).
+  - Directly from the web interface (**🏛️ Buscar notas (SEFAZ e Portal Nacional)** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`certificado.pfx` in the safe folder described in **Where the certificate and password are stored**, outside the project).
   - Alternatively, for headless servers or CLI/Docker automation, configure via `.env`:
   ```ini
   NFE_CERT_PATH=/secure/path/company_a1.pfx
@@ -162,10 +170,10 @@ The **ADN** (national NFS-e data environment) distributes the National Standard 
 
 ### How to test the real call (step by step)
 
-1. **Register the A1 certificate** (**SEFAZ e ADN** tab → *Cadastrar / Trocar Certificado*, or `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
+1. **Register the A1 certificate** (**Buscar notas (SEFAZ e Portal Nacional)** tab → *Cadastrar / Trocar Certificado*, or `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
 2. **Diagnostic (writes nothing):** the **🩺 Diagnóstico do ADN** button or `nfe-local sincronizar-adn --diagnostico --ambiente 2` (then `--ambiente 1`). It makes **one** read query and shows: base URL, **masked** CNPJ, certificate validity, TLS result (version and cipher), HTTP, `StatusProcessamento`, `TipoConsulta`, errors/alerts and the item count per type. On a connection failure it shows the stage, root exception, OS code and what to do, with no URL parameters, CNPJ, certificate path, password or XML.
 3. **One-page sync:** `nfe-local sincronizar-adn --max-paginas 1 --db <a test database>`.
-4. **Full sync:** `nfe-local sincronizar-adn` (or **Sincronizar NFS-e (ADN)** / **Sincronizar tudo** in the panel). If it stops at `LIMITE_PAGINAS`, run again: it continues from the cursor.
+4. **Full sync:** `nfe-local sincronizar-adn` (or **Buscar NFS-e de serviço (Portal Nacional)** / **Buscar tudo** in the panel). If it stops at `LIMITE_PAGINAS`, run again: it continues from the cursor.
 
 > **What has been tested in real use (2026-11-19):** the diagnostic in both environments, a sync of **one page** in production (50 new NFS-e) and the **complete** production sync: 10 pages, queue emptied, 411 documents (391 new NFS-e and 20 events), provider, taker and intermediary roles, no processing errors and no connection failures in that run. The intermediary role comes from reading the XML, which the Swagger does not confirm.
 
@@ -261,7 +269,7 @@ Full methodology and reproduction instructions are available in [`docs/benchmark
    - It then creates an isolated virtual environment outside OneDrive (`%USERPROFILE%\venvs\nfe-local`), installs dependencies, runs `pip install -e .` (registers the `nfe-local` command in that environment's `Scripts` folder), and creates a **"Visualizador NF-e Local"** shortcut on your Desktop. Everything is logged to `instalar.log`.
 2. Double-click the Desktop shortcut or **`iniciar.bat`**.
    - Your browser will open `http://127.0.0.1:8765`.
-   - Use **"Carregar Lote de Demonstração"** on the Batch Analyzer tab, or switch to **"🏛️ SEFAZ e ADN"** and click **"🧪 Carregar Recebidas de Demonstração"** to test the inbound filters without a real A1 certificate.
+   - Use **"Carregar Lote de Demonstração"** on the Batch Analyzer tab, or switch to **"🏛️ Buscar notas (SEFAZ e Portal Nacional)"** and click **"🧪 Carregar Recebidas de Demonstração"** to test the inbound filters without a real A1 certificate.
 
 ### Option 2: Command-Line Interface (CLI)
 
@@ -398,6 +406,7 @@ In this table, **"Type"** separates what was merely a **design decision** from w
 | Issued/Received role | Compares the queried CNPJ with the invoice parties; without a reference, "—". | The role does not come ready from the ADN; computing it on read avoids rewriting old rows. | Design decision |
 | Demonstration | Loads the synthetic NFS-e **without touching** the cursor or `sync_log`. | Clicking "demo" on a real database must not disturb the real sync. | Design decision |
 | "Tudo" view | Adds uploads, SEFAZ and ADN without reading XML (columns only); no items/taxes for fetched invoices. | Reprocessing 15k XMLs on each click would be slow. | Design decision (accepted limitation) |
+| Sums and KPIs | Total value without cancelled invoices and events, split by type and by role; ERRO_XML listed with the reason. | In a usage review, "Valor total das notas" added issued with received and included cancelled invoices. | **Correction found in usage review** |
 | Temporary mTLS file | `requests-pkcs12` briefly writes a temporary `.pem` with the encrypted key. | The documentation said nothing was written to disk; it was corrected (task 28 evaluates removing the file). | **Documentation correction** |
 
 ---
