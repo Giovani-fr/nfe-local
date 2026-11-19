@@ -2,12 +2,39 @@
 
 > 🇧🇷 **Leia em Português:** [README.md](README.md)
 
-A **100% local, deterministic, zero-mandatory-API-cost** tool for parsing, validating, batch-analyzing, rendering printable HTML mirrors (**DANFE** and **DANFSe**), and automatically fetching the company's invoices: **product NF-e via SEFAZ** (**`NFeDistribuicaoDFe`**) and **NFS-e via the national ADN** (issued and received):
+[![CI](https://github.com/Giovani-fr/nfe-local/actions/workflows/ci.yml/badge.svg)](https://github.com/Giovani-fr/nfe-local/actions/workflows/ci.yml)
+
+### In 30 seconds
+
+- **What it is:** a viewer, validator and batch analyzer for NF-e, NFC-e and NFS-e (National Standard), with DANFE and DANFSe mirrors.
+- **What it fetches:** product NF-e from SEFAZ and **issued and received** NFS-e from the national portal (ADN), using your A1 certificate.
+- **Where it runs:** on your computer; data and certificate stay there (the network is only used when you ask it to fetch invoices).
+- **Validated in real use:** NFS-e via the ADN (diagnostic in both environments and a complete production fetch); the NF-e fetch from SEFAZ is **not** confirmed in real use yet (see [Project Status](#project-status)).
+- **See:** the [main screen](docs/prints/sefaz-adn.png) and the [installation](#installation--usage).
+
+### Contents
+
+- [Scope: what each source brings](#scope-what-each-source-brings)
+- [Project Status](#project-status)
+- [Key features](#key-features)
+- [Phase 2: NF-e via SEFAZ and A1 certificate](#phase-2-nf-e-via-sefaz-nfedistribuicaodfe--safe-a1-certificate-handling)
+- [Phase 4: NFS-e via the ADN](#phase-4-nfs-e-via-the-national-adn-issued-and-received)
+- [Environment variables](#environment-variables)
+- [Installation and usage](#installation--usage)
+- [Known limitations](#known-limitations)
+- [How it works](#how-it-works-under-the-hood)
+- [Running the tests](#running-tests--linter)
+- [Detailed validation (full table)](#detailed-validation-full-table)
+- [Measured speed and memory (benchmark)](#measured-speed--memory-1000-xml-benchmark)
+- [How I used AI](#how-i-used-ai-engineering-log--human-review)
+- [Licenses](#third-party-licenses--project-license)
+
+A **local (data stays on your computer), deterministic, zero-mandatory-API-cost** tool for parsing, validating, batch-analyzing, rendering printable HTML mirrors (**DANFE** and **DANFSe**), and automatically fetching the company's invoices: **product NF-e via SEFAZ** (**`NFeDistribuicaoDFe`**) and **NFS-e via the national ADN** (issued and received):
 - **NF-e** (Model 55 — including early support for **Alphanumeric CNPJ under NT 2014.002 v1.40** and **Tax Reform IBS/CBS**).
 - **NFC-e** (Model 65 — retail/consumer electronic invoice).
 - **NFS-e** (exclusively the **National Standard** — `sped.fazenda.gov.br/nfse` and **DANFSe NT 008/2026**).
 
-Your XML files and digital certificate never leave your infrastructure: all processing runs locally in Python (`lxml` hardened against XXE, `Pydantic v2` with exact `Decimal` arithmetic, in-memory `cryptography` PKCS#12, `SQLite`, and `FastAPI`).
+**What "local" means here:** processing and data (XMLs, SQLite database and certificate) stay on your computer (`lxml` hardened against XXE, `Pydantic v2` with exact `Decimal` arithmetic, `cryptography`, `SQLite` and `FastAPI`). The **network is only used** when you ask it to fetch invoices (SEFAZ and the national portal/ADN, authenticating with your certificate: the `.pfx` file is never sent) or turn on the **optional AI assistant** (by default, only anonymized accounting aggregates). The web interface loads no external resources.
 
 ### Real screenshots (generated from 100% synthetic data)
 
@@ -50,20 +77,26 @@ The **Buscar notas (SEFAZ e Portal Nacional)** tab shows what was fetched automa
 
 ## Project Status
 
-| Module / Feature | Status | How it was verified |
-| :--- | :---: | :--- |
-| **Anti-XXE Parser for NF-e (55), NFC-e (65), Summary & Events** | ✅ Ready | Automated test suite with synthetic XML fixtures (`nfeProc`, unsigned `NFe`, `resNFe`, `procEventoNFe`, and XXE attack blocking). |
-| **National Standard NFS-e Parser (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Ready | Verified with 50-digit access keys, ISSQN, federal withholdings (`IRRF`/`CSLL`/`CP`/`PIS`/`COFINS`), Tax Reform (`IBS/CBS`), and explicit rejection of legacy municipal layouts (ABRASF). |
-| **Alphanumeric CNPJ & Access Key Validator (NT 2014.002 v1.40)** | ✅ Ready | Unit tests for Modulo 11 check digits via `ord(c) - 48` on 44-char keys and CNPJs containing letters (`12.ABC.345/01DE-35`). |
-| **Financial Reconciliation ($\sum \text{items} == \text{vProd}$ & $\text{vNF}$ equation)** | ✅ Ready | Tested with balanced invoices and purposefully mismatched item/total fixtures using exact `Decimal` math. |
-| **Streaming Batch Aggregator & CSV / 4-Sheet XLSX Export** | ✅ Ready | Real benchmark with **1,000 XMLs** (`0.63 MB` peak RAM in streaming) + protection against *CSV/Excel Formula Injection* and 44/50-char key preservation as text (`@`). |
-| **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe v2.0 with QR Code)** | ✅ Ready | Integration tests via `TestClient` covering pure-SVG Code 128-C / 128-B barcodes, a pure-SVG QR Code on the DANFSe, and homologation watermarks. |
-| **FastAPI REST API + Agent-Ready CLI** | ✅ Ready | REST endpoints (`/api/lote`, `/api/recebidas`, `/exportar`) and `nfe-local analisar` / `nfe-local sincronizar-sefaz` CLI commands tested end-to-end. |
-| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with an injected HTTP client. **By default it sends only anonymized accounting aggregates** (issuers as "Emitente 01", no legal names, CNPJs or invoice sample); `LLM_ENVIAR_IDENTIFICADORES=1` and `LLM_ENVIAR_AMOSTRA=1` enable, respectively, real names/CNPJs and the sample of up to 30 invoices. Tests prove that, in the default mode, no identifier appears in what would be sent. Disk cache and hourly quota. See [Optional LLM assistant](#optional-llm-assistant-and-privacy). |
-| **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 440+ automated tests in the current suite. |
-| **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
-| **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready | Archive listing and summary **never read or decompress** the SQLite `xml_gzip` (on-demand read only when opening details, the DANFE/DANFSe mirror or downloading the XML, backed by a key index), paginated tables (`50 / 100 / 250 / All`), sortable headers and official DANFE/DANFSe v2.0 layouts. ZIP extraction limits raised to 50,000 files / 1 GB (still bounded against *zip bombs*). |
-| **Phase 4 — NFS-e via the national ADN (issued and received) and unified view** | ✅ Validated in real use | **Validated:** simulated responses (automated tests, no network); on **2026-11-19**, the real diagnostic in **restricted production and in production** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sync of **one page** in production brought **50 new NFS-e**; and the **complete** production sync (**2026-11-19**) went through **10 pages**, emptied the queue and stored **411 documents (391 new NFS-e and 20 events)**, with provider, taker and intermediary roles, no processing errors and no connection failures in that run. There were intermittent connection failures in earlier attempts, now handled with automatic retries. **Caveat:** the **intermediary** role comes from reading the XML (`<interm>`), which the Swagger does not confirm. |
+| Module / Feature | Status |
+| :--- | :---: |
+| **Anti-XXE Parser for NF-e (55), NFC-e (65), Summary & Events** | ✅ Ready |
+| **National Standard NFS-e Parser (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Ready |
+| **Alphanumeric CNPJ & Access Key Validator (NT 2014.002 v1.40)** | ✅ Ready |
+| **Financial Reconciliation ($\sum \text{items} == \text{vProd}$ & $\text{vNF}$ equation)** | ✅ Ready |
+| **Streaming Batch Aggregator & CSV / 4-Sheet XLSX Export** | ✅ Ready |
+| **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe v2.0 with QR Code)** | ✅ Ready |
+| **FastAPI REST API + Agent-Ready CLI** | ✅ Ready |
+| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready |
+| **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ⚠️ Simulated; 1st real query timed out (fix not yet confirmed in real use) |
+| **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready |
+| **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready |
+| **Phase 4 — NFS-e via the national ADN (issued and received) and unified view** | ✅ Validated in real use |
+
+**Phase 4 (NFS-e via the ADN), validated in real use:** **Validated:** simulated responses (automated tests, no network); on **2026-11-19**, the real diagnostic in **restricted production and in production** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sync of **one page** in production brought **50 new NFS-e**; and the **complete** production sync (**2026-11-19**) went through **10 pages**, emptied the queue and stored **411 documents (391 new NFS-e and 20 events)**, with provider, taker and intermediary roles, no processing errors and no connection failures in that run. There were intermittent connection failures in earlier attempts, now handled with automatic retries. **Caveat:** the **intermediary** role comes from reading the XML (`<interm>`), which the Swagger does not confirm.
+
+**NF-e via SEFAZ (Phase 2):** validated with simulated responses and synthetic certificates. In real use, the first production query timed out (*Read timed out*, 30 s) with the connection and certificate working; so the timeout became 90 s and the query is now retried only on connection failures. **That fix is not yet confirmed by a new real fetch.**
+
+The full table, with how each module was validated, is in [Detailed validation](#detailed-validation-full-table).
 
 ---
 
@@ -254,19 +287,6 @@ Anonymized does not mean impossible to re-identify: the issuer's state and per-i
 
 ---
 
-## Measured Speed & Memory (1,000-XML Benchmark)
-
-Real measurement executed via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) on **Windows 11 (Python 3.12.10, Intel64)** across a mixed batch of **1,000 synthetic XMLs** (250 numeric NF-e 55, 250 NFC-e 65, 250 alphanumeric-CNPJ NF-e 55, and 250 National NFS-e):
-
-| Measured Scenario | Total Time | Throughput | Peak Memory (`tracemalloc`) | Output |
-| :--- | :---: | :---: | :---: | :--- |
-| **Streaming Mode (`iterar_lote` + `gerar_resumo_lote`)** | **7.07 s** | **141.4 XMLs/s** | **0.63 MB** | Keeps only 1 DOM tree in memory at a time |
-| **Full Batch + 4-Sheet XLSX Export (`openpyxl`)** | **7.57 s** | **132.0 XMLs/s** | **32.43 MB** | Generates a complete **275.6 KB** `.xlsx` workbook |
-
-Full methodology and reproduction instructions are available in [`docs/benchmark.md`](docs/benchmark.md).
-
----
-
 ## Installation & Usage
 
 ### Option 1: One-Click Windows Installer (Recommended)
@@ -329,6 +349,21 @@ docker run --rm -p 127.0.0.1:8765:8765 nfe-local:latest
 
 ---
 
+## Known Limitations
+
+1. **Legal Validity of HTML Mirrors (DANFE / DANFSe):**
+   - The printable HTML mirrors are auxiliary visual representations for human review and auditing. The legally binding tax document is always the **digitally signed original XML file**.
+2. **NFS-e Scope Restricted to the National Standard:**
+   - For service invoices (NFS-e), only the **National Standard** (`http://www.sped.fazenda.gov.br/nfse`) is supported. Legacy municipal layouts (such as ABRASF) are explicitly rejected with a clear message, as they are being phased out nationwide.
+3. **A3 Hardware Certificates (USB Token / Smartcard) Not Supported:**
+   - The `NFeDistribuicaoDFe` module exclusively supports **A1 Digital Certificates (`.pfx` / PKCS#12)** loaded in memory. Hardware-based PKCS#11 A3 tokens are out of scope.
+4. **ADN (NFS-e): what is not yet proven or not supported:**
+   - The complete production sync was confirmed in real use (2026-11-19), but the production Swagger was not downloaded and the **intermediary** role comes from reading the XML (`<interm>`), not confirmed in the Swagger. The query is for the **certificate's CNPJ** (`cnpjConsulta`; power of attorney and `cpfConsulta` were neither implemented nor tested).
+   - In the **Tudo** view, SEFAZ/ADN invoices enter without revalidation and without per-item lines or taxes.
+   - `NFeDistribuicaoDFe` is not the source for NFC-e; for NF-e **issued by the CNPJ itself**, delivery by SEFAZ was not confirmed: use upload.
+
+---
+
 ## How It Works Under the Hood
 
 ```mermaid
@@ -349,18 +384,47 @@ flowchart LR
 
 ---
 
-## Known Limitations
+## Running Tests & Linter
 
-1. **Legal Validity of HTML Mirrors (DANFE / DANFSe):**
-   - The printable HTML mirrors are auxiliary visual representations for human review and auditing. The legally binding tax document is always the **digitally signed original XML file**.
-2. **NFS-e Scope Restricted to the National Standard:**
-   - For service invoices (NFS-e), only the **National Standard** (`http://www.sped.fazenda.gov.br/nfse`) is supported. Legacy municipal layouts (such as ABRASF) are explicitly rejected with a clear message, as they are being phased out nationwide.
-3. **A3 Hardware Certificates (USB Token / Smartcard) Not Supported:**
-   - The `NFeDistribuicaoDFe` module exclusively supports **A1 Digital Certificates (`.pfx` / PKCS#12)** loaded in memory. Hardware-based PKCS#11 A3 tokens are out of scope.
-4. **ADN (NFS-e): what is not yet proven or not supported:**
-   - The complete production sync was confirmed in real use (2026-11-19), but the production Swagger was not downloaded and the **intermediary** role comes from reading the XML (`<interm>`), not confirmed in the Swagger. The query is for the **certificate's CNPJ** (`cnpjConsulta`; power of attorney and `cpfConsulta` were neither implemented nor tested).
-   - In the **Tudo** view, SEFAZ/ADN invoices enter without revalidation and without per-item lines or taxes.
-   - `NFeDistribuicaoDFe` is not the source for NFC-e; for NF-e **issued by the CNPJ itself**, delivery by SEFAZ was not confirmed: use upload.
+```powershell
+ruff check .
+ruff format --check .
+pytest -v
+```
+
+---
+
+## Detailed validation (full table)
+
+How each module was validated. The summary is in [Project Status](#project-status).
+
+| Module / Feature | Status | How it was verified |
+| :--- | :---: | :--- |
+| **Anti-XXE Parser for NF-e (55), NFC-e (65), Summary & Events** | ✅ Ready | Automated test suite with synthetic XML fixtures (`nfeProc`, unsigned `NFe`, `resNFe`, `procEventoNFe`, and XXE attack blocking). |
+| **National Standard NFS-e Parser (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Ready | Verified with 50-digit access keys, ISSQN, federal withholdings (`IRRF`/`CSLL`/`CP`/`PIS`/`COFINS`), Tax Reform (`IBS/CBS`), and explicit rejection of legacy municipal layouts (ABRASF). |
+| **Alphanumeric CNPJ & Access Key Validator (NT 2014.002 v1.40)** | ✅ Ready | Unit tests for Modulo 11 check digits via `ord(c) - 48` on 44-char keys and CNPJs containing letters (`12.ABC.345/01DE-35`). |
+| **Financial Reconciliation ($\sum \text{items} == \text{vProd}$ & $\text{vNF}$ equation)** | ✅ Ready | Tested with balanced invoices and purposefully mismatched item/total fixtures using exact `Decimal` math. |
+| **Streaming Batch Aggregator & CSV / 4-Sheet XLSX Export** | ✅ Ready | Real benchmark with **1,000 XMLs** (`0.63 MB` peak RAM in streaming) + protection against *CSV/Excel Formula Injection* and 44/50-char key preservation as text (`@`). |
+| **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe v2.0 with QR Code)** | ✅ Ready | Integration tests via `TestClient` covering pure-SVG Code 128-C / 128-B barcodes, a pure-SVG QR Code on the DANFSe, and homologation watermarks. |
+| **FastAPI REST API + Agent-Ready CLI** | ✅ Ready | REST endpoints (`/api/lote`, `/api/recebidas`, `/exportar`) and `nfe-local analisar` / `nfe-local sincronizar-sefaz` CLI commands tested end-to-end. |
+| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with an injected HTTP client. **By default it sends only anonymized accounting aggregates** (issuers as "Emitente 01", no legal names, CNPJs or invoice sample); `LLM_ENVIAR_IDENTIFICADORES=1` and `LLM_ENVIAR_AMOSTRA=1` enable, respectively, real names/CNPJs and the sample of up to 30 invoices. Tests prove that, in the default mode, no identifier appears in what would be sent. Disk cache and hourly quota. See [Optional LLM assistant](#optional-llm-assistant-and-privacy). |
+| **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 440+ automated tests in the current suite. **In real use, the first production query timed out (*Read timed out*, 30 s) with the connection and certificate working; the fix (90 s timeout and retries only on connection failures) is not yet confirmed by a new real fetch.** |
+| **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
+| **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready | Archive listing and summary **never read or decompress** the SQLite `xml_gzip` (on-demand read only when opening details, the DANFE/DANFSe mirror or downloading the XML, backed by a key index), paginated tables (`50 / 100 / 250 / All`), sortable headers and official DANFE/DANFSe v2.0 layouts. ZIP extraction limits raised to 50,000 files / 1 GB (still bounded against *zip bombs*). |
+| **Phase 4 — NFS-e via the national ADN (issued and received) and unified view** | ✅ Validated in real use | **Validated:** simulated responses (automated tests, no network); on **2026-11-19**, the real diagnostic in **restricted production and in production** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sync of **one page** in production brought **50 new NFS-e**; and the **complete** production sync (**2026-11-19**) went through **10 pages**, emptied the queue and stored **411 documents (391 new NFS-e and 20 events)**, with provider, taker and intermediary roles, no processing errors and no connection failures in that run. There were intermittent connection failures in earlier attempts, now handled with automatic retries. **Caveat:** the **intermediary** role comes from reading the XML (`<interm>`), which the Swagger does not confirm. |
+
+---
+
+## Measured Speed & Memory (1,000-XML Benchmark)
+
+Real measurement executed via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) on **Windows 11 (Python 3.12.10, Intel64)** across a mixed batch of **1,000 synthetic XMLs** (250 numeric NF-e 55, 250 NFC-e 65, 250 alphanumeric-CNPJ NF-e 55, and 250 National NFS-e):
+
+| Measured Scenario | Total Time | Throughput | Peak Memory (`tracemalloc`) | Output |
+| :--- | :---: | :---: | :---: | :--- |
+| **Streaming Mode (`iterar_lote` + `gerar_resumo_lote`)** | **7.07 s** | **141.4 XMLs/s** | **0.63 MB** | Keeps only 1 DOM tree in memory at a time |
+| **Full Batch + 4-Sheet XLSX Export (`openpyxl`)** | **7.57 s** | **132.0 XMLs/s** | **32.43 MB** | Generates a complete **275.6 KB** `.xlsx` workbook |
+
+Full methodology and reproduction instructions are available in [`docs/benchmark.md`](docs/benchmark.md).
 
 ---
 
@@ -416,16 +480,6 @@ In this table, **"Type"** separates what was merely a **design decision** from w
 | "Tudo" view | Adds uploads, SEFAZ and ADN without reading XML (columns only); no items/taxes for fetched invoices. | Reprocessing 15k XMLs on each click would be slow. | Design decision (accepted limitation) |
 | Sums and KPIs | Total value without cancelled invoices and events, split by type and by role; ERRO_XML listed with the reason. | In a usage review, "Valor total das notas" added issued with received and included cancelled invoices. | **Correction found in usage review** |
 | Temporary mTLS file | `requests-pkcs12` briefly writes a temporary `.pem` with the encrypted key. | The documentation said nothing was written to disk; it was corrected (task 28 evaluates removing the file). | **Documentation correction** |
-
----
-
-## Running Tests & Linter
-
-```powershell
-ruff check .
-ruff format --check .
-pytest -v
-```
 
 ---
 

@@ -2,12 +2,39 @@
 
 > 🇺🇸 **Read this in English:** [README.en.md](README.en.md)
 
-Ferramenta **100% local, determinística e sem custo obrigatório de API** para leitura, validação fiscal/financeira, análise gerencial em lote, geração de espelhos imprimíveis (**DANFE** e **DANFSe**) e busca automática das notas do CNPJ da empresa: **NF-e pela SEFAZ** (**`NFeDistribuicaoDFe`**) e **NFS-e pelo ADN Nacional** (emitidas e tomadas):
+[![CI](https://github.com/Giovani-fr/nfe-local/actions/workflows/ci.yml/badge.svg)](https://github.com/Giovani-fr/nfe-local/actions/workflows/ci.yml)
+
+### Em 30 segundos
+
+- **O que é:** visualizador, validador e analisador em lote de NF-e, NFC-e e NFS-e (Padrão Nacional), com espelhos DANFE e DANFSe.
+- **O que busca:** NF-e de produto pela SEFAZ e NFS-e **emitidas e tomadas** pelo Portal Nacional (ADN), com o seu certificado A1.
+- **Onde roda:** no seu computador; os dados e o certificado ficam nele (a rede só é usada quando você manda buscar notas).
+- **Validado em uso real:** NFS-e pelo ADN (diagnóstico nos dois ambientes e busca completa em produção); a busca de NF-e pela SEFAZ ainda **não** foi confirmada em uso real (veja o [Estado do Projeto](#estado-do-projeto)).
+- **Veja:** a [tela principal](docs/prints/sefaz-adn.png) e a [instalação](#instalação-e-como-usar).
+
+### Sumário
+
+- [Escopo: o que cada fonte traz](#escopo-o-que-cada-fonte-traz)
+- [Estado do Projeto](#estado-do-projeto)
+- [Principais funções](#principais-funções)
+- [Fase 2: NF-e pela SEFAZ e certificado A1](#fase-2-nf-e-pela-sefaz-nfedistribuicaodfe-e-manuseio-seguro-do-certificado-a1)
+- [Fase 4: NFS-e pelo ADN](#fase-4-nfs-e-pelo-adn-nacional-emitidas-e-tomadas)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Instalação e como usar](#instalação-e-como-usar)
+- [Limitações conhecidas](#limitações-conhecidas)
+- [Como funciona por baixo](#como-funciona-por-baixo)
+- [Como rodar os testes](#como-rodar-os-testes-e-o-linter)
+- [Validação detalhada (tabela completa)](#validação-detalhada-tabela-completa)
+- [Velocidade e memória (benchmark)](#velocidade-e-memória-medidas-benchmark-de-1000-xmls)
+- [Como usei IA](#como-usei-ia-registro-de-engenharia-e-revisão-humana)
+- [Licenças](#licenças-de-terceiros-e-licença-do-projeto)
+
+Ferramenta **local (os dados ficam no seu computador), determinística e sem custo obrigatório de API** para leitura, validação fiscal/financeira, análise gerencial em lote, geração de espelhos imprimíveis (**DANFE** e **DANFSe**) e busca automática das notas do CNPJ da empresa: **NF-e pela SEFAZ** (**`NFeDistribuicaoDFe`**) e **NFS-e pelo ADN Nacional** (emitidas e tomadas):
 - **NF-e** (Modelo 55 — incluindo suporte antecipado ao **CNPJ Alfanumérico da NT 2014.002 v1.40** e **Reforma Tributária IBS/CBS**).
 - **NFC-e** (Modelo 65 — varejo e consumidor final).
 - **NFS-e** (exclusivamente no **Padrão Nacional** — `sped.fazenda.gov.br/nfse` e **DANFSe NT 008/2026**).
 
-Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: todo o processamento ocorre localmente via Python (`lxml` blindado contra XXE, `Pydantic v2` com `Decimal` exato, `cryptography` PKCS#12 em memória, `SQLite` e `FastAPI`).
+**O que "local" significa aqui:** o processamento e os dados (XMLs, banco SQLite e certificado) ficam no seu computador (`lxml` blindado contra XXE, `Pydantic v2` com `Decimal` exato, `cryptography`, `SQLite` e `FastAPI`). A **rede só é usada** quando você manda buscar notas (SEFAZ e Portal Nacional/ADN, autenticando com o seu certificado: o arquivo `.pfx` nunca é enviado) ou liga o **assistente de IA opcional** (por padrão, só agregados contábeis anonimizados). A interface web não carrega recursos externos.
 
 ### Telas reais (geradas com dados 100% sintéticos)
 
@@ -50,20 +77,26 @@ A aba **Buscar notas (SEFAZ e Portal Nacional)** mostra o que foi buscado automa
 
 ## Estado do Projeto
 
-| Módulo / Funcionalidade | Estado | Como foi validado |
-| :--- | :---: | :--- |
-| **Parser Anti-XXE de NF-e (55), NFC-e (65), Resumo e Evento** | ✅ Pronto | Suíte automatizada com XMLs sintéticos (`nfeProc`, `NFe` sem protocolo, `resNFe`, `procEventoNFe` e bloqueio de ataque XXE). |
-| **Parser de NFS-e Padrão Nacional (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Pronto | Validado com chaves de 50 dígitos, ISSQN, retenções federais (`IRRF`/`CSLL`/`CP`/`PIS`/`COFINS`), Reforma Tributária (`IBS/CBS`) e rejeição explícita de layouts municipais legados (ABRASF). |
-| **Validador de Chave e CNPJ Alfanumérico (NT 2014.002 v1.40)** | ✅ Pronto | Testes unitários do cálculo de Módulo 11 via `ord(c) - 48` para chaves de 44 posições e CNPJs com letras e números (`12.ABC.345/01DE-35`). |
-| **Batimento Financeiro ($\sum \text{itens} == \text{vProd}$ e equação $\text{vNF}$)** | ✅ Pronto | Testado com notas íntegras e notas com divergência proposital de centavos/totais (`Decimal` sem ponto flutuante). |
-| **Agregador de Lote em Streaming e Exportação CSV / XLSX (4 Abas)** | ✅ Pronto | Benchmark real com **1.000 XMLs** (`0,63 MB` de pico em streaming) + blindagem contra *CSV/Excel Formula Injection* e preservação de chaves de 44/50 posições como texto (`@`). |
-| **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto | Testado via `TestClient` com código de barras SVG puro (Code 128-C e 128-B), QR Code SVG puro no DANFSe e marca d'água para homologação. |
-| **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
-| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado. **Por padrão envia só agregados contábeis anonimizados** (emitentes como "Emitente 01", sem razão social, CNPJ nem amostra de notas); `LLM_ENVIAR_IDENTIFICADORES=1` e `LLM_ENVIAR_AMOSTRA=1` liberam, respectivamente, nomes/CNPJ reais e a amostra de até 30 notas. Testes provam que, no modo padrão, nenhum identificador aparece no que seria enviado. Cache em disco e franquia horária. Veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade). |
-| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 440 testes automatizados na suíte atual. |
-| **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
-| **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
-| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ✅ Validado em uso real | **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas**; e a sincronização **completa** em produção (**19/11/2026**) percorreu **10 páginas**, zerou a fila e gravou **411 documentos (391 NFS-e novas e 20 eventos)**, com os papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. Houve falhas de conexão intermitentes em tentativas anteriores, hoje tratadas com repetição automática. **Ressalva:** o papel de **intermediário** vem de uma leitura do XML (`<interm>`) que o Swagger não confirma. |
+| Módulo / Funcionalidade | Estado |
+| :--- | :---: |
+| **Parser Anti-XXE de NF-e (55), NFC-e (65), Resumo e Evento** | ✅ Pronto |
+| **Parser de NFS-e Padrão Nacional (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Pronto |
+| **Validador de Chave e CNPJ Alfanumérico (NT 2014.002 v1.40)** | ✅ Pronto |
+| **Batimento Financeiro ($\sum \text{itens} == \text{vProd}$ e equação $\text{vNF}$)** | ✅ Pronto |
+| **Agregador de Lote em Streaming e Exportação CSV / XLSX (4 Abas)** | ✅ Pronto |
+| **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto |
+| **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto |
+| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto |
+| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ⚠️ Simulado; 1ª consulta real expirou (correção sem nova confirmação real) |
+| **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto |
+| **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto |
+| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ✅ Validado em uso real |
+
+**Fase 4 (NFS-e pelo ADN), validada em uso real:** **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas**; e a sincronização **completa** em produção (**19/11/2026**) percorreu **10 páginas**, zerou a fila e gravou **411 documentos (391 NFS-e novas e 20 eventos)**, com os papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. Houve falhas de conexão intermitentes em tentativas anteriores, hoje tratadas com repetição automática. **Ressalva:** o papel de **intermediário** vem de uma leitura do XML (`<interm>`) que o Swagger não confirma.
+
+**NF-e pela SEFAZ (Fase 2):** validada com respostas simuladas e certificados sintéticos. Em uso real, a primeira consulta em produção expirou (*Read timed out*, 30 s), com conexão e certificado funcionando; por isso o tempo limite passou a 90 s e a consulta passou a ser repetida só em falha de conexão. **Essa correção ainda não foi confirmada em uma nova busca real.**
+
+A tabela completa, com como cada módulo foi validado, está em [Validação detalhada](#validação-detalhada-tabela-completa).
 
 ---
 
@@ -257,19 +290,6 @@ Anonimizado não significa impossível de reidentificar: a UF do emitente e os v
 
 ---
 
-## Velocidade e Memória Medidas (Benchmark de 1.000 XMLs)
-
-Medição real executada via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) em **Windows 11 (Python 3.12.10, Intel64)** processando um lote misto de **1.000 XMLs sintéticos** (250 NF-e 55 numéricas, 250 NFC-e 65, 250 NF-e com CNPJ alfanumérico e 250 NFS-e Padrão Nacional):
-
-| Cenário Medido | Tempo Total | Velocidade (Throughput) | Pico de Memória (`tracemalloc`) | Resultado |
-| :--- | :---: | :---: | :---: | :--- |
-| **Modo Streaming (`iterar_lote` + `gerar_resumo_lote`)** | **7,07 s** | **141,4 XMLs/s** | **0,63 MB** | Mantém apenas 1 árvore DOM por vez em memória |
-| **Lote Completo + Exportação XLSX (4 Abas `openpyxl`)** | **7,57 s** | **132,0 XMLs/s** | **32,43 MB** | Gera planilha `.xlsx` completa de **275,6 KB** |
-
-Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`](docs/benchmark.md).
-
----
-
 ## Instalação e Como Usar
 
 ### Opção 1: Instalador Automático no Windows (Recomendado)
@@ -332,6 +352,21 @@ docker run --rm -p 127.0.0.1:8765:8765 nfe-local:latest
 
 ---
 
+## Limitações Conhecidas
+
+1. **Validade Jurídica dos Espelhos HTML (DANFE / DANFSe):**
+   - Os espelhos gerados em tela/impressão são representações visuais auxiliares para conferência humana e auditoria rápida. O documento fiscal com validade jurídica perante o Fisco é sempre o arquivo **XML original assinado digitalmente**.
+2. **Escopo de NFS-e Restrito ao Padrão Nacional:**
+   - Para Nota Fiscal de Serviço Eletrônica (NFS-e), o sistema suporta **exclusivamente o Padrão Nacional** (`http://www.sped.fazenda.gov.br/nfse`). Layouts municipais proprietários ou legados (como ABRASF, Ginfes, Betha etc.) são rejeitados com alerta explícito, pois estão em processo de descontinuação nacional.
+3. **Certificados A3 (Token USB / Smartcard) Não Suportados:**
+   - O módulo `NFeDistribuicaoDFe` suporta exclusivamente **Certificado Digital A1 (`.pfx` / PKCS#12)** lido em memória. Certificados A3 em hardware criptográfico via PKCS#11 não fazem parte do escopo.
+4. **ADN (NFS-e): o que ainda não foi comprovado ou não é suportado:**
+   - A sincronização completa em produção foi confirmada em uso real (19/11/2026), mas o Swagger de produção não foi baixado e o papel de **intermediário** vem de uma leitura do XML (`<interm>`) não confirmada no Swagger. A consulta é do **CNPJ do certificado** (`cnpjConsulta`; procuração e `cpfConsulta` não foram implementados nem testados).
+   - Na visão **Tudo**, as notas do SEFAZ/ADN entram sem revalidação e sem itens/impostos por item.
+   - O `NFeDistribuicaoDFe` não é a fonte para NFC-e; para NF-e **emitidas pelo próprio CNPJ** a entrega pela SEFAZ não foi confirmada: use upload.
+
+---
+
 ## Como Funciona por Baixo
 
 ```mermaid
@@ -352,18 +387,50 @@ flowchart LR
 
 ---
 
-## Limitações Conhecidas
+## Como Rodar os Testes e o Linter
 
-1. **Validade Jurídica dos Espelhos HTML (DANFE / DANFSe):**
-   - Os espelhos gerados em tela/impressão são representações visuais auxiliares para conferência humana e auditoria rápida. O documento fiscal com validade jurídica perante o Fisco é sempre o arquivo **XML original assinado digitalmente**.
-2. **Escopo de NFS-e Restrito ao Padrão Nacional:**
-   - Para Nota Fiscal de Serviço Eletrônica (NFS-e), o sistema suporta **exclusivamente o Padrão Nacional** (`http://www.sped.fazenda.gov.br/nfse`). Layouts municipais proprietários ou legados (como ABRASF, Ginfes, Betha etc.) são rejeitados com alerta explícito, pois estão em processo de descontinuação nacional.
-3. **Certificados A3 (Token USB / Smartcard) Não Suportados:**
-   - O módulo `NFeDistribuicaoDFe` suporta exclusivamente **Certificado Digital A1 (`.pfx` / PKCS#12)** lido em memória. Certificados A3 em hardware criptográfico via PKCS#11 não fazem parte do escopo.
-4. **ADN (NFS-e): o que ainda não foi comprovado ou não é suportado:**
-   - A sincronização completa em produção foi confirmada em uso real (19/11/2026), mas o Swagger de produção não foi baixado e o papel de **intermediário** vem de uma leitura do XML (`<interm>`) não confirmada no Swagger. A consulta é do **CNPJ do certificado** (`cnpjConsulta`; procuração e `cpfConsulta` não foram implementados nem testados).
-   - Na visão **Tudo**, as notas do SEFAZ/ADN entram sem revalidação e sem itens/impostos por item.
-   - O `NFeDistribuicaoDFe` não é a fonte para NFC-e; para NF-e **emitidas pelo próprio CNPJ** a entrega pela SEFAZ não foi confirmada: use upload.
+```powershell
+# Verificar estilo, segurança (bandit/ruff S) e formatação
+ruff check .
+ruff format --check .
+
+# Executar toda a suíte de testes automatizados (440+ testes 100% offline)
+pytest -v
+```
+
+---
+
+## Validação detalhada (tabela completa)
+
+Como cada módulo foi validado. O resumo está em [Estado do Projeto](#estado-do-projeto).
+
+| Módulo / Funcionalidade | Estado | Como foi validado |
+| :--- | :---: | :--- |
+| **Parser Anti-XXE de NF-e (55), NFC-e (65), Resumo e Evento** | ✅ Pronto | Suíte automatizada com XMLs sintéticos (`nfeProc`, `NFe` sem protocolo, `resNFe`, `procEventoNFe` e bloqueio de ataque XXE). |
+| **Parser de NFS-e Padrão Nacional (`infNFSe` / `infDPS` / `IBSCBS`)** | ✅ Pronto | Validado com chaves de 50 dígitos, ISSQN, retenções federais (`IRRF`/`CSLL`/`CP`/`PIS`/`COFINS`), Reforma Tributária (`IBS/CBS`) e rejeição explícita de layouts municipais legados (ABRASF). |
+| **Validador de Chave e CNPJ Alfanumérico (NT 2014.002 v1.40)** | ✅ Pronto | Testes unitários do cálculo de Módulo 11 via `ord(c) - 48` para chaves de 44 posições e CNPJs com letras e números (`12.ABC.345/01DE-35`). |
+| **Batimento Financeiro ($\sum \text{itens} == \text{vProd}$ e equação $\text{vNF}$)** | ✅ Pronto | Testado com notas íntegras e notas com divergência proposital de centavos/totais (`Decimal` sem ponto flutuante). |
+| **Agregador de Lote em Streaming e Exportação CSV / XLSX (4 Abas)** | ✅ Pronto | Benchmark real com **1.000 XMLs** (`0,63 MB` de pico em streaming) + blindagem contra *CSV/Excel Formula Injection* e preservação de chaves de 44/50 posições como texto (`@`). |
+| **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto | Testado via `TestClient` com código de barras SVG puro (Code 128-C e 128-B), QR Code SVG puro no DANFSe e marca d'água para homologação. |
+| **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
+| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado. **Por padrão envia só agregados contábeis anonimizados** (emitentes como "Emitente 01", sem razão social, CNPJ nem amostra de notas); `LLM_ENVIAR_IDENTIFICADORES=1` e `LLM_ENVIAR_AMOSTRA=1` liberam, respectivamente, nomes/CNPJ reais e a amostra de até 30 notas. Testes provam que, no modo padrão, nenhum identificador aparece no que seria enviado. Cache em disco e franquia horária. Veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade). |
+| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 440 testes automatizados na suíte atual. **Em uso real, a primeira consulta em produção expirou (*Read timed out*, 30 s) com conexão e certificado funcionando; a correção (tempo limite de 90 s e repetição só em falha de conexão) ainda não foi confirmada em uma nova busca real.** |
+| **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
+| **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
+| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ✅ Validado em uso real | **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas**; e a sincronização **completa** em produção (**19/11/2026**) percorreu **10 páginas**, zerou a fila e gravou **411 documentos (391 NFS-e novas e 20 eventos)**, com os papéis prestador, tomador e intermediário, sem erro de processamento e sem falhas de conexão na rodada. Houve falhas de conexão intermitentes em tentativas anteriores, hoje tratadas com repetição automática. **Ressalva:** o papel de **intermediário** vem de uma leitura do XML (`<interm>`) que o Swagger não confirma. |
+
+---
+
+## Velocidade e Memória Medidas (Benchmark de 1.000 XMLs)
+
+Medição real executada via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) em **Windows 11 (Python 3.12.10, Intel64)** processando um lote misto de **1.000 XMLs sintéticos** (250 NF-e 55 numéricas, 250 NFC-e 65, 250 NF-e com CNPJ alfanumérico e 250 NFS-e Padrão Nacional):
+
+| Cenário Medido | Tempo Total | Velocidade (Throughput) | Pico de Memória (`tracemalloc`) | Resultado |
+| :--- | :---: | :---: | :---: | :--- |
+| **Modo Streaming (`iterar_lote` + `gerar_resumo_lote`)** | **7,07 s** | **141,4 XMLs/s** | **0,63 MB** | Mantém apenas 1 árvore DOM por vez em memória |
+| **Lote Completo + Exportação XLSX (4 Abas `openpyxl`)** | **7,57 s** | **132,0 XMLs/s** | **32,43 MB** | Gera planilha `.xlsx` completa de **275,6 KB** |
+
+Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`](docs/benchmark.md).
 
 ---
 
@@ -419,19 +486,6 @@ Nesta tabela, **"Tipo"** separa o que foi só **decisão de projeto** do que foi
 | Visão "Tudo" | Soma uploads, SEFAZ e ADN sem ler XML (só colunas); sem itens/impostos das notas buscadas. | Reprocessar 15 mil XMLs a cada clique seria lento. | Decisão de projeto (limitação assumida) |
 | Somas e KPIs | Valor total sem canceladas e sem eventos, separado por tipo e por papel; ERRO_XML listado com o motivo. | Em revisão de uso, o "Valor total das notas" somava emitidas com recebidas e incluía canceladas. | **Correção encontrada em revisão de uso** |
 | Arquivo temporário do mTLS | O `requests-pkcs12` grava por instantes um `.pem` temporário com a chave cifrada. | A documentação dizia que nada era gravado em disco; foi corrigida (tarefa 28 avalia eliminar o arquivo). | **Correção de documentação** |
-
----
-
-## Como Rodar os Testes e o Linter
-
-```powershell
-# Verificar estilo, segurança (bandit/ruff S) e formatação
-ruff check .
-ruff format --check .
-
-# Executar toda a suíte de testes automatizados (440+ testes 100% offline)
-pytest -v
-```
 
 ---
 
