@@ -15,6 +15,7 @@ from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_
 from reports.resumo import ResumoLote, gerar_resumo_lote
 from sefaz.adn import ClienteADN, ErroBloqueioADN
 from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
+from sefaz.adn_diagnostico import DiagnosticoADN, diagnosticar_adn
 from sefaz.adn_sync import MAX_PAGINAS_PADRAO, ResumoSyncADN, sincronizar_adn
 from sefaz.cert_a1 import (
     ErroCertificadoA1,
@@ -161,6 +162,18 @@ def criar_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAX_PAGINAS_PADRAO,
         help=f"Máximo de páginas por execução (padrão: {MAX_PAGINAS_PADRAO}).",
+    )
+    parser_adn.add_argument(
+        "--url-base",
+        dest="url_base",
+        default=None,
+        metavar="https://...",
+        help="URL base do ADN (sobrepõe NFE_ADN_URL_BASE e o padrão do ambiente).",
+    )
+    parser_adn.add_argument(
+        "--diagnostico",
+        action="store_true",
+        help="Faz UMA consulta de leitura a GET /DFe/0 e mostra o resultado, sem gravar nada.",
     )
     parser_adn.add_argument(
         "--demo",
@@ -406,7 +419,62 @@ def _imprimir_resumo_adn_terminal(resumo: ResumoSyncADN) -> None:
     print("=" * 64)
 
 
+def _imprimir_diagnostico_adn(diag: DiagnosticoADN) -> None:
+    def _data(d) -> str:
+        return d.date().isoformat() if d else "-"
+
+    print("=" * 64)
+    print(f"nfe-local v{__version__} — Diagnóstico do ADN (somente leitura)")
+    print("=" * 64)
+    print(f"Ambiente                        : {diag.ambiente}")
+    print(f"URL base                        : {diag.url_base}")
+    print(f"CNPJ de consulta                : {diag.cnpj_consulta_mascarado}")
+    print(
+        f"Certificado válido              : {_data(diag.certificado_valido_de)} a "
+        f"{_data(diag.certificado_valido_ate)}"
+        f"{' (VENCIDO)' if diag.certificado_vencido else ''}"
+    )
+    print(f"Conexão TLS                     : {diag.conexao_tls}")
+    print(f"HTTP status                     : {diag.http_status if diag.http_status else '-'}")
+    print(f"StatusProcessamento             : {diag.status_processamento or '-'}")
+    print(f"TipoConsulta                    : {diag.tipo_consulta or '-'}")
+    for rotulo, lista in (("Erros", diag.erros), ("Alertas", diag.alertas)):
+        if lista:
+            for m in lista:
+                print(f"{rotulo}".ljust(32) + f": {m.codigo} - {m.descricao}")
+        else:
+            print(f"{rotulo}".ljust(32) + ": (nenhum)")
+    if diag.itens_por_tipo_documento:
+        for tipo, qtd in sorted(diag.itens_por_tipo_documento.items()):
+            print(f"Itens {tipo}".ljust(32) + f": {qtd}")
+    else:
+        print("Itens no lote                   : 0")
+    print(f"Resultado                       : {diag.interpretacao}")
+    print("=" * 64)
+
+
+def _executar_diagnostico_adn(args: argparse.Namespace) -> int:
+    """Uma consulta somente leitura. Não abre nem cria o banco e não toca no cursor."""
+    try:
+        pfx_bytes, senha, _, config = carregar_certificado_configurado()
+        amb = resolver_ambiente_sefaz(
+            args.ambiente if args.ambiente is not None else config.ambiente
+        )
+        cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb, base_url=args.url_base)
+    except (ErroCertificadoA1, ValueError) as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    diag = diagnosticar_adn(cliente)
+    if args.saida_json:
+        print(json.dumps(diag.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    else:
+        _imprimir_diagnostico_adn(diag)
+    return 0 if diag.sucesso else 1
+
+
 def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
+    if args.diagnostico:
+        return _executar_diagnostico_adn(args)
     repo = RepositorioDistDFeSQLite(args.caminho_db)
 
     if args.demo:
@@ -425,7 +493,9 @@ def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
             amb = resolver_ambiente_sefaz(
                 args.ambiente if args.ambiente is not None else config.ambiente
             )
-            cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb)
+            cliente = ClienteADN(
+                pfx_bytes=pfx_bytes, senha=senha, ambiente=amb, base_url=args.url_base
+            )
             resumo = sincronizar_adn(
                 cliente.consultar_nsu,
                 repo,
