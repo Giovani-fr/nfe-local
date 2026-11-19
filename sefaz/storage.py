@@ -175,6 +175,7 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("sync_log", "origem", "TEXT NOT NULL DEFAULT 'NFE'"),
     ("sync_log", "tentativas", "INTEGER NOT NULL DEFAULT 1"),
     ("adn_cursor", "documento_consulta", "TEXT"),
+    ("dfe_cursor", "documento_consulta", "TEXT"),
     ("sync_log", "falhas_conexao", "TEXT"),
 )
 _INDICES_NOVOS: tuple[str, ...] = (
@@ -387,7 +388,18 @@ class RepositorioDistDFeSQLite:
             bloqueado_ate=_iso_para_dt(row["bloqueado_ate"]),
             ultimo_cstat=row["ultimo_cstat"],
             ultimo_motivo=row["ultimo_motivo"],
+            documento_consulta=row["documento_consulta"] or "",
         )
+
+    def obter_documento_consulta_nfe_recente(self) -> str:
+        """CNPJ guardado pela busca de NF-e mais recente (vazio em bancos antigos)."""
+        with self._conectar() as conn:
+            row = conn.execute(
+                "SELECT documento_consulta FROM dfe_cursor "
+                "WHERE COALESCE(documento_consulta, '') != '' "
+                "ORDER BY COALESCE(ultima_consulta, '') DESC LIMIT 1"
+            ).fetchone()
+        return (row["documento_consulta"] if row else "") or ""
 
     def salvar_cursor(self, cursor: EstadoCursorNSU) -> None:
         """Faz upsert de `EstadoCursorNSU` na tabela `dfe_cursor`."""
@@ -397,15 +409,18 @@ class RepositorioDistDFeSQLite:
                 """
                 INSERT INTO dfe_cursor (
                     ambiente, ultimo_nsu, max_nsu, ultima_consulta,
-                    bloqueado_ate, ultimo_cstat, ultimo_motivo
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    bloqueado_ate, ultimo_cstat, ultimo_motivo, documento_consulta
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ambiente) DO UPDATE SET
                     ultimo_nsu = excluded.ultimo_nsu,
                     max_nsu = excluded.max_nsu,
                     ultima_consulta = excluded.ultima_consulta,
                     bloqueado_ate = excluded.bloqueado_ate,
                     ultimo_cstat = excluded.ultimo_cstat,
-                    ultimo_motivo = excluded.ultimo_motivo
+                    ultimo_motivo = excluded.ultimo_motivo,
+                    documento_consulta = COALESCE(
+                        NULLIF(excluded.documento_consulta, ''), dfe_cursor.documento_consulta
+                    )
                 """,
                 (
                     amb,
@@ -415,6 +430,7 @@ class RepositorioDistDFeSQLite:
                     _dt_para_iso(cursor.bloqueado_ate),
                     cursor.ultimo_cstat,
                     cursor.ultimo_motivo,
+                    cursor.documento_consulta or None,
                 ),
             )
 
@@ -1560,10 +1576,14 @@ def sincronizar_dist_dfe(
     tentativas: int = TENTATIVAS_PADRAO,
     esperas_retentativa: Sequence[float] = ESPERAS_RETENTATIVA_PADRAO,
     dormir_fn: Callable[[float], None] | None = None,
+    documento_consulta: str | None = None,
 ) -> ResumoExecucaoSync:
     """Executa uma rodada completa de sincronização `DistDFe` persistindo NSU, notas e logs."""
     obter_agora = relogio_fn if relogio_fn is not None else (lambda: datetime.now(UTC))
     cursor_inicial = repo.obter_cursor(ambiente=ambiente)
+    if documento_consulta:
+        # Gravado junto do cursor, a cada página recebida (nunca em página que falhou).
+        cursor_inicial.documento_consulta = limpar_documento(documento_consulta)
     repetidor = RepetidorConsultaSEFAZ(
         consultar_fn,
         tentativas=tentativas,

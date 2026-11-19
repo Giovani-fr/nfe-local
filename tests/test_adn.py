@@ -611,6 +611,9 @@ def _foto(caminho: Path, tabela: str, colunas: str) -> list[tuple]:
         con.close()
 
 
+COLS_CURSOR = "ambiente,ultimo_nsu,max_nsu,ultima_consulta,bloqueado_ate,ultimo_cstat,ultimo_motivo"
+
+
 class TestMigracaoDoBanco:
     COLS_NOTAS = (
         "chave,nsu,ambiente,schema_xml,categoria_schema,tipo_documento,modelo,numero,serie,"
@@ -626,7 +629,7 @@ class TestMigracaoDoBanco:
         logs_antes = _foto(
             caminho, "sync_log", "id,ts,ambiente,cstat,motivo,paginas,novos_docs,ultimo_nsu"
         )
-        cursor_antes = _foto(caminho, "dfe_cursor", "*")
+        cursor_antes = _foto(caminho, "dfe_cursor", COLS_CURSOR)
 
         repo = RepositorioDistDFeSQLite(caminho)
 
@@ -636,7 +639,7 @@ class TestMigracaoDoBanco:
             _foto(caminho, "sync_log", "id,ts,ambiente,cstat,motivo,paginas,novos_docs,ultimo_nsu")
             == logs_antes
         )
-        assert _foto(caminho, "dfe_cursor", "*") == cursor_antes
+        assert _foto(caminho, "dfe_cursor", COLS_CURSOR) == cursor_antes
         assert {r[0] for r in _foto(caminho, "notas_recebidas", "origem")} == {"DISTDFE"}
         assert {r[0] for r in _foto(caminho, "notas_recebidas", "papel")} == {None}
         assert {r[0] for r in _foto(caminho, "sync_log", "origem")} == {"NFE"}

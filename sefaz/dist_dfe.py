@@ -373,6 +373,13 @@ class ClienteNFeDistribuicaoDFe:
         sessao.mount("https://", adapter)
         return sessao
 
+    @property
+    def documento_consulta(self) -> str:
+        """CNPJ que será consultado: `NFE_CNPJ_CONSULTA` ou o do certificado A1."""
+        return (
+            limpar_documento(os.environ.get("NFE_CNPJ_CONSULTA", "")) or self._metadados.documento
+        )
+
     def consultar_dist_nsu(
         self,
         ult_nsu: int | str = 0,

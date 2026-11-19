@@ -54,6 +54,9 @@ class EstadoCursorNSU(BaseModel):
     bloqueado_ate: datetime | None = None
     ultimo_cstat: str | None = None
     ultimo_motivo: str | None = None
+    # CNPJ consultado (o do certificado, ou `NFE_CNPJ_CONSULTA`): base do papel Emitida/Recebida.
+    # Nunca sai em JSON/API.
+    documento_consulta: str = Field(default="", exclude=True)
 
 
 class ResultadoSincronizacaoNSU(BaseModel):

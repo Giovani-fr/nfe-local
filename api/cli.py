@@ -439,6 +439,7 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
                 repo=repo,
                 ambiente=amb,
                 tentativas=tentativas,
+                documento_consulta=cliente.documento_consulta,
             )
         except (ErroCertificadoA1, ErroBloqueioSEFAZ, ErroComunicacaoSEFAZ) as exc:
             print(f"Erro: {exc}", file=sys.stderr)

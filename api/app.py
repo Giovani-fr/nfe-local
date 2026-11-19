@@ -344,12 +344,41 @@ def definir_sessao_http_adn(sessao: Any | None) -> None:
     _SESSAO_HTTP_ADN = sessao
 
 
+_CACHE_DOC_CERT: dict[str, Any] = {"chave": None, "documento": ""}
+
+
+def _documento_do_certificado_cadastrado() -> str:
+    """CNPJ do certificado cadastrado (só como último recurso); em cache até o arquivo mudar."""
+    pasta = obter_diretorio_certificado()
+    try:
+        arq = pasta / "certificado.pfx"
+        st = arq.stat()
+        chave = (str(arq), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ""
+    if _CACHE_DOC_CERT["chave"] == chave:
+        return str(_CACHE_DOC_CERT["documento"])
+    try:
+        _, _, metadados, _ = carregar_certificado_configurado(pasta)
+        documento = metadados.documento
+    except ErroCertificadoA1:
+        documento = ""
+    _CACHE_DOC_CERT.update(chave=chave, documento=documento)
+    return documento
+
+
 def _documento_consulta(repo: RepositorioDistDFeSQLite) -> str | None:
-    """CNPJ de referência para EMITIDA/RECEBIDA: `NFE_CNPJ_CONSULTA` ou o da última consulta ADN."""
+    """CNPJ de referência para Emitida/Recebida, nesta ordem: `NFE_CNPJ_CONSULTA`, o guardado
+    pelo cursor do ADN, o guardado pelo cursor da NF-e e, por fim, o do certificado cadastrado.
+    """
     from models.normalizadores import limpar_documento
 
-    return limpar_documento(os.environ.get("NFE_CNPJ_CONSULTA", "")) or (
-        repo.obter_documento_consulta_recente() or None
+    return (
+        limpar_documento(os.environ.get("NFE_CNPJ_CONSULTA", ""))
+        or repo.obter_documento_consulta_recente()
+        or repo.obter_documento_consulta_nfe_recente()
+        or _documento_do_certificado_cadastrado()
+        or None
     )
 
 
@@ -1116,6 +1145,7 @@ def sincronizar_recebidas_sefaz(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     esperas_sef: tuple[float, ...] | None = None
+    documento_sef: str | None = None
     cert_dir = obter_diretorio_certificado()
     config_local = ler_config_sefaz_local(cert_dir)
     amb: Literal[1, 2] = (
@@ -1149,6 +1179,7 @@ def sincronizar_recebidas_sefaz(
             sessao_http=_SESSAO_HTTP_SEFAZ,
             timeout_segundos=tempo_limite,
         )
+        documento_sef = cliente.documento_consulta
         consultar_fn = lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu)  # noqa: E731
 
     try:
@@ -1157,6 +1188,7 @@ def sincronizar_recebidas_sefaz(
             repo=repo,
             ambiente=amb,
             tentativas=n_tentativas,
+            documento_consulta=documento_sef,
             **({"esperas_retentativa": esperas_sef} if esperas_sef is not None else {}),
         )
     except ErroBloqueioSEFAZ as exc:
