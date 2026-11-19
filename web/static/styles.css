@@ -797,7 +797,7 @@ body {
 }
 
 .data-table-notas .col-tipo {
-  width: 5%;
+  width: 8%;
 }
 
 .data-table-notas .col-origem {
@@ -815,7 +815,7 @@ body {
 }
 
 .data-table-notas .col-parte {
-  width: 14%;
+  width: 13%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -829,7 +829,7 @@ body {
 }
 
 .data-table-notas .col-actions {
-  width: 13%;
+  width: 12%;
 }
 
 /* Cabeçalhos clicáveis de ordenação */
@@ -864,11 +864,11 @@ body {
 
 /* Larguras proporcionais — Aba 2 (10 colunas, soma = 100%) */
 .data-table-recebidas .col-tipo-rec {
-  width: 5%;
+  width: 9%;
 }
 
 .data-table-recebidas .col-origem-rec {
-  width: 6%;
+  width: 7%;
 }
 
 .data-table-recebidas .col-papel-rec {
@@ -881,19 +881,19 @@ body {
 }
 
 .data-table-recebidas .col-num-chave {
-  width: 15%;
+  width: 14%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-recebidas .col-parte-rec {
-  width: 14.5%;
+  width: 13%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-recebidas .col-valor-rec {
-  width: 9%;
+  width: 8%;
 }
 
 .data-table-recebidas .col-sit-rec {
@@ -1459,4 +1459,92 @@ body {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+/* Selo de tipo, com cor própria: produto, serviço e consumidor */
+.badge-tipo-nfe {
+  color: #7cc0ff;
+  border-color: rgba(124, 192, 255, 0.55);
+  background: rgba(124, 192, 255, 0.12);
+}
+
+.badge-tipo-nfse {
+  color: #c4a2ff;
+  border-color: rgba(196, 162, 255, 0.55);
+  background: rgba(196, 162, 255, 0.12);
+}
+
+.badge-tipo-nfce {
+  color: #4fe0c8;
+  border-color: rgba(79, 224, 200, 0.55);
+  background: rgba(79, 224, 200, 0.12);
+}
+
+/* Cartões de resumo por tipo e seletor de tipo */
+.type-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 0.9rem;
+}
+
+.type-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
+.type-card.tipo-nfe {
+  border-left-color: #7cc0ff;
+}
+
+.type-card.tipo-nfse {
+  border-left-color: #c4a2ff;
+}
+
+.type-card.tipo-nfce {
+  border-left-color: #4fe0c8;
+}
+
+.type-card-qtd {
+  font-size: 1.05rem;
+}
+
+.type-card-valor {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.type-card-det {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  font-size: 0.78rem;
+}
+
+.type-selector {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.type-selector .tipo-contagem {
+  margin-left: 0.25rem;
+  font-size: 0.74rem;
+}
+
+.type-selector .btn-primary .tipo-contagem {
+  color: inherit;
+  opacity: 0.9;
+}
+
+.total-row td {
+  border-top: 2px solid var(--border-color);
 }

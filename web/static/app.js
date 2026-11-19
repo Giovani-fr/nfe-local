@@ -38,13 +38,26 @@
 
   const fmtMoedaRS = (valor) => `R$ ${fmtMoeda(valor)}`;
 
-  const ROTULOS_ORIGEM = { DISTDFE: "SEFAZ", SEFAZ: "SEFAZ", ADN: "ADN", UPLOAD: "Upload" };
+  const ROTULOS_ORIGEM = { DISTDFE: "SEFAZ", SEFAZ: "SEFAZ", ADN: "Portal Nacional", UPLOAD: "Upload" };
+  const DICAS_ORIGEM = {
+    SEFAZ: "SEFAZ (NFeDistribuicaoDFe): NF-e de produto",
+    "Portal Nacional": "ADN (Ambiente de Dados Nacional da NFS-e): NFS-e de serviço",
+    Upload: "Arquivo enviado por você",
+  };
+  const GRUPO_TIPO_JS = { NFE: "NFE", RESUMO: "NFE", NFCE: "NFCE", NFSE: "NFSE" };
   const ROTULOS_PAPEL = {
     EMITIDA: "Emitida",
     RECEBIDA: "Recebida",
     INTERMEDIARIA: "Intermediária",
   };
-  const ROTULOS_TIPO_NOTA = { NFE: "NF-e", NFCE: "NFC-e", NFSE: "NFS-e", RESUMO: "NF-e (resumo)" };
+  const ROTULOS_TIPO_NOTA = {
+    NFE: "NF-e (produto)",
+    NFCE: "NFC-e (consumidor)",
+    NFSE: "NFS-e (serviço)",
+    RESUMO: "NF-e (produto, resumo)",
+  };
+  const tipoCasa = (tipo, filtro) =>
+    !filtro || (filtro === "NFE" ? tipo === "NFE" || tipo === "RESUMO" : tipo === filtro);
   const DICA_PAPEL =
     "Critério: o CNPJ do certificado/consulta é comparado com o emitente (prestador) = Emitida, " +
     "com o destinatário (tomador) = Recebida e com o intermediário (NFS-e) = Intermediária.";
@@ -56,7 +69,14 @@
   const badgeOrigem = (o) => {
     const r = rotuloOrigem(o);
     const classe = r === "SEFAZ" ? "badge-type" : r === "ADN" ? "badge-gold" : "badge-ok";
-    return `<span class="badge ${classe}">${escaparHtml(r)}</span>`;
+    return `<span class="badge ${classe}" title="${escaparHtml(DICAS_ORIGEM[r] || r)}">${escaparHtml(r)}</span>`;
+  };
+
+  const badgeTipo = (tipo) => {
+    const grupo = GRUPO_TIPO_JS[tipo];
+    const classe = grupo ? `badge-tipo-${grupo.toLowerCase()}` : "badge-type";
+    const rotulo = grupo ? rotuloTipoNota(tipo) : String(tipo || "-");
+    return `<span class="badge ${classe}">${escaparHtml(rotulo)}</span>`;
   };
 
   const badgePapel = (p) => {
@@ -343,6 +363,170 @@
       .join("");
   };
 
+  const somarPorTipo = (itens) => {
+    // itens: [{tipo, valor, cancelada, chave}] -> {TODAS,NFE,NFSE,NFCE: {q, v}} sem canceladas/eventos
+    const somas = { TODAS: { q: 0, v: 0 }, NFE: { q: 0, v: 0 }, NFSE: { q: 0, v: 0 }, NFCE: { q: 0, v: 0 } };
+    const vistas = new Set();
+    itens.forEach((it) => {
+      const grupo = GRUPO_TIPO_JS[it.tipo];
+      if (!grupo) return;
+      if (it.chave) {
+        if (vistas.has(it.chave)) return;
+        vistas.add(it.chave);
+      }
+      if (it.cancelada) return;
+      [grupo, "TODAS"].forEach((k) => {
+        somas[k].q += 1;
+        somas[k].v += Number(it.valor || 0);
+      });
+    });
+    return somas;
+  };
+
+  const preencherSeletorTipo = (containerId, somas, atual) => {
+    const cont = document.getElementById(containerId);
+    if (!cont) return;
+    cont.querySelectorAll(".tipo-btn").forEach((btn) => {
+      const chave = btn.dataset.contagemTipo;
+      const s = somas[chave] || { q: 0, v: 0 };
+      const span = btn.querySelector(".tipo-contagem");
+      if (span) span.textContent = `${s.q} · ${fmtMoedaRS(s.v)}`;
+      const valorBtn = chave === "TODAS" ? "" : chave;
+      const ativo = valorBtn === (atual || "");
+      btn.classList.toggle("btn-primary", ativo);
+      btn.classList.toggle("btn-secondary", !ativo);
+      btn.setAttribute("aria-pressed", ativo ? "true" : "false");
+    });
+  };
+
+  const atualizarSeletorTipoNotas = (candidatos, filtroTipo) => {
+    const itens = candidatos
+      .map((c) => c.res.documento && {
+        tipo: c.res.documento.tipo,
+        valor: c.res.documento.totais?.valor_total_nota,
+        cancelada: c.res.documento.situacao === "CANCELADA",
+        chave: c.res.documento.chave_acesso,
+      })
+      .filter(Boolean);
+    preencherSeletorTipo("seletor-tipo-notas", somarPorTipo(itens), filtroTipo);
+  };
+
+  const CARTOES_TIPO = [
+    ["NFE", "NF-e (produto)", "Nota fiscal de produto (modelo 55)"],
+    ["NFSE", "NFS-e (serviço)", "Nota fiscal de serviço (Padrão Nacional)"],
+    ["NFCE", "NFC-e (consumidor)", "Nota fiscal ao consumidor (modelo 65)"],
+  ];
+
+  const renderizarCartoesTipo = (containerId, quebras) => {
+    const cont = document.getElementById(containerId);
+    if (!cont) return;
+    if (!quebras) {
+      cont.innerHTML = "";
+      return;
+    }
+    cont.innerHTML = CARTOES_TIPO.map(([chave, rotulo, dica]) => {
+      const q = (quebras.por_tipo || {})[chave] || { quantidade: 0, valor: 0, papeis: {} };
+      const pa = q.papeis || {};
+      const parte = (rot, k) => {
+        const s = pa[k] || { quantidade: 0, valor: 0 };
+        return s.quantidade ? `<span>${rot}: <strong>${s.quantidade}</strong> · ${fmtMoedaRS(s.valor)}</span>` : "";
+      };
+      const detalhes = [
+        parte("Emitidas", "EMITIDA"),
+        parte("Recebidas", "RECEBIDA"),
+        parte("Intermediárias", "INTERMEDIARIA"),
+        parte("Sem papel", "SEM_PAPEL"),
+      ].filter(Boolean);
+      const canc = (quebras.canceladas_por_tipo || {})[chave] || 0;
+      return `
+        <div class="type-card tipo-${chave.toLowerCase()}" title="${escaparHtml(dica)}">
+          <div class="type-card-head">${badgeTipo(chave)}</div>
+          <strong class="type-card-qtd">${q.quantidade} nota(s)</strong>
+          <span class="type-card-valor">${fmtMoedaRS(q.valor)}</span>
+          <div class="type-card-det muted">${detalhes.join("") || "<span>Nenhuma nota</span>"}</div>
+          ${canc ? `<div class="type-card-det muted"><span>Canceladas (fora da soma): <strong>${canc}</strong></span></div>` : ""}
+        </div>`;
+    }).join("");
+  };
+
+  const renderizarQuebras = (q) => {
+    const tbody = document.getElementById("tbody-quebras");
+    const lblFora = document.getElementById("lbl-fora-somas");
+    const hint = document.getElementById("quebras-criterio");
+    if (hint && q) hint.title = q.criterio || "";
+    const rotuloKpi = document.getElementById("kpi-valor-rotulo");
+    if (rotuloKpi && q) rotuloKpi.title = q.criterio || "";
+    if (!tbody) return;
+    if (!q) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center;">Sem dados.</td></tr>';
+      return;
+    }
+    const cel = (s) => (s && s.quantidade ? `${s.quantidade} · ${fmtMoeda(s.valor)}` : "-");
+    const linhas = CARTOES_TIPO.map(([chave, rotulo]) => {
+      const b = q.por_tipo[chave] || { quantidade: 0, valor: 0, papeis: {} };
+      return `<tr>
+        <td>${badgeTipo(chave)}</td>
+        <td class="num">${b.quantidade}</td>
+        <td class="num"><strong>${fmtMoeda(b.valor)}</strong></td>
+        <td class="num">${cel(b.papeis.EMITIDA)}</td>
+        <td class="num">${cel(b.papeis.RECEBIDA)}</td>
+        <td class="num">${cel(b.papeis.INTERMEDIARIA)}</td>
+        <td class="num">${cel(b.papeis.SEM_PAPEL)}</td>
+      </tr>`;
+    });
+    const pp = q.por_papel || {};
+    linhas.push(`<tr class="total-row">
+      <td><strong>Total</strong></td>
+      <td class="num"><strong>${q.quantidade_total}</strong></td>
+      <td class="num"><strong>${fmtMoeda(q.valor_total)}</strong></td>
+      <td class="num">${cel(pp.EMITIDA)}</td>
+      <td class="num">${cel(pp.RECEBIDA)}</td>
+      <td class="num">${cel(pp.INTERMEDIARIA)}</td>
+      <td class="num">${cel(pp.SEM_PAPEL)}</td>
+    </tr>`);
+    tbody.innerHTML = linhas.join("");
+    if (lblFora) {
+      const c = q.canceladas || { quantidade: 0, valor: 0 };
+      lblFora.textContent =
+        `Fora das somas: ${c.quantidade} nota(s) cancelada(s) (${fmtMoedaRS(c.valor)} não somados) e ${q.eventos} evento(s). ` +
+        `${q.resumos_nfe} resumo(s) resNFe contam na NF-e. ${q.duplicadas_ignoradas} chave(s) repetida(s) ignorada(s). ` +
+        "Passe o mouse no ⓘ para ver o critério.";
+    }
+  };
+
+  const renderizarErrosXml = () => {
+    const tbody = document.getElementById("tbody-erros-xml");
+    const lbl = document.getElementById("lbl-erros-xml");
+    const selCod = document.getElementById("erros-xml-codigo");
+    if (!tbody) return;
+    const todos = estado.errosXml || [];
+    if (selCod) {
+      const atual = selCod.value;
+      const codigos = [...new Set(todos.map((e) => e.codigo))].sort();
+      selCod.innerHTML =
+        '<option value="">Todos os motivos</option>' +
+        codigos
+          .map((c) => `<option value="${escaparHtml(c)}">${escaparHtml(ROTULOS_ALERTA[c] || c)} (${todos.filter((e) => e.codigo === c).length})</option>`)
+          .join("");
+      selCod.value = codigos.includes(atual) ? atual : "";
+    }
+    const termo = (document.getElementById("erros-xml-busca")?.value || "").trim().toLowerCase();
+    const cod = selCod?.value || "";
+    const lista = todos.filter(
+      (e) =>
+        (!cod || e.codigo === cod) &&
+        (!termo || `${e.arquivo} ${e.motivo} ${e.codigo}`.toLowerCase().includes(termo))
+    );
+    if (lbl) lbl.textContent = `${lista.length} de ${todos.length} XML(s) ilegível(is)`;
+    tbody.innerHTML = lista.length
+      ? lista
+          .map(
+            (e) => `<tr><td class="arquivo-nome">${escaparHtml(e.arquivo)}</td><td><span class="badge badge-err">${escaparHtml(ROTULOS_ALERTA[e.codigo] || e.codigo)}</span></td><td>${escaparHtml(e.motivo)}</td></tr>`
+          )
+          .join("")
+      : '<tr><td colspan="3" class="muted" style="text-align:center;">Nenhum XML ilegível.</td></tr>';
+  };
+
   const renderizarLote = (dados, rotuloPersonalizado = "") => {
     estado.loteId = dados.lote_id;
     estado.escopoId = dados.lote_id;
@@ -417,8 +601,27 @@
     document.getElementById("kpi-com-erros").textContent = c.com_erros;
     document.getElementById("kpi-erros-fatais").textContent = `${c.erros_fatais_xml} ilegíveis/rejeitados`;
 
-    document.getElementById("kpi-valor-total").textContent = fmtMoedaRS(dados.resumo.valor_total_notas);
-    document.getElementById("kpi-valor-liquido").textContent = `Líquido: ${fmtMoedaRS(dados.resumo.valor_liquido_total)}`;
+    const qb = dados.quebras || null;
+    estado.quebras = qb;
+    estado.errosXml = qb ? qb.erros_xml || [] : [];
+    if (qb) {
+      const pp = qb.por_papel || {};
+      const v = (k) => Number((pp[k] || {}).valor || 0);
+      document.getElementById("kpi-valor-total").textContent = fmtMoedaRS(qb.valor_total);
+      document.getElementById("kpi-valor-liquido").textContent =
+        `Emitidas: ${fmtMoedaRS(v("EMITIDA"))} · Recebidas: ${fmtMoedaRS(v("RECEBIDA"))}` +
+        (v("INTERMEDIARIA") ? ` · Interm.: ${fmtMoedaRS(v("INTERMEDIARIA"))}` : "") +
+        (v("SEM_PAPEL") ? ` · Sem papel: ${fmtMoedaRS(v("SEM_PAPEL"))}` : "");
+      document.getElementById("kpi-fora-soma").textContent =
+        `Fora da soma: ${qb.canceladas.quantidade} cancelada(s) (${fmtMoedaRS(qb.canceladas.valor)}) · ${qb.eventos} evento(s)`;
+    } else {
+      document.getElementById("kpi-valor-total").textContent = fmtMoedaRS(dados.resumo.valor_total_notas);
+      document.getElementById("kpi-valor-liquido").textContent = "";
+      document.getElementById("kpi-fora-soma").textContent = "";
+    }
+    renderizarQuebras(qb);
+    renderizarErrosXml();
+    renderizarCartoesTipo("cartoes-tipo-notas", qb);
 
     document.getElementById("tax-icms").textContent = fmtMoedaRS(imp.icms);
     document.getElementById("tax-icms-st").textContent = fmtMoedaRS(imp.icms_st);
@@ -728,13 +931,12 @@
     if (!tbody) return;
 
     const totalBruto = estado.resultados.length;
-    const itensFiltrados = [];
+    const candidatos = [];
 
     estado.resultados.forEach((res, idx) => {
       const doc = res.documento;
       const tipo = doc ? doc.tipo : "ERRO_XML";
 
-      if (filtroTipo && tipo !== filtroTipo) return;
       if (filtroStatus === "validos" && !res.valido) return;
       if (filtroStatus === "erros" && res.valido) return;
       if (
@@ -765,8 +967,12 @@
         if (!alvo.includes(termo)) return;
       }
 
-      itensFiltrados.push({ res, idx });
+      candidatos.push({ res, idx, tipo });
     });
+
+    // O seletor de tipo mostra o que cada tipo daria com os DEMAIS filtros; o select fica em sincronia.
+    atualizarSeletorTipoNotas(candidatos, filtroTipo);
+    const itensFiltrados = candidatos.filter((c) => tipoCasa(c.tipo, filtroTipo));
 
     const itensOrdenados = ordenarItensNotas(itensFiltrados);
     atualizarIndicadoresOrdenacao(".data-table-notas", estado.ordenacaoNotas);
@@ -815,7 +1021,7 @@
             <strong class="arquivo-nome" title="${escaparHtml(res.arquivo_origem)}">${escaparHtml(res.arquivo_origem)}</strong>
             ${doc?.chave_acesso ? renderizarChaveComCopia(doc.chave_acesso) : ""}
           </td>
-          <td class="col-tipo"><span class="badge badge-type">${escaparHtml(tipo)}</span></td>
+          <td class="col-tipo">${badgeTipo(tipo)}</td>
           <td class="col-origem">${badgeOrigem(res.origem)}${res.papel ? ` ${badgePapel(res.papel)}` : ""}</td>
           <td class="col-numero">${escaparHtml(numSerie)}</td>
           <td class="col-emissao-nota" title="${escaparHtml(dataEmiCompleta)}">${escaparHtml(dataEmiCurta)}</td>
@@ -1505,6 +1711,28 @@
       const kpiValor = document.getElementById("rec-kpi-valor");
       if (kpiTotal) kpiTotal.textContent = String(dados.total || 0);
       if (kpiValor) kpiValor.textContent = fmtMoedaRS(dados.valor_total_filtrado || 0);
+      const kpiFora = document.getElementById("rec-kpi-fora");
+      if (kpiFora && dados.quebras) {
+        const c = dados.quebras.canceladas;
+        kpiFora.textContent = c.quantidade
+          ? `· fora da soma: ${c.quantidade} cancelada(s) (${fmtMoedaRS(c.valor)})`
+          : "";
+      }
+      const qt = dados.quebras_todos_tipos;
+      if (qt) {
+        const somas = { TODAS: { q: qt.quantidade_total, v: Number(qt.valor_total) } };
+        ["NFE", "NFSE", "NFCE"].forEach((k) => {
+          const b = (qt.por_tipo || {})[k] || { quantidade: 0, valor: 0 };
+          somas[k] = { q: b.quantidade, v: Number(b.valor) };
+        });
+        preencherSeletorTipo("rec-seletor-tipo", somas, tipoF);
+        renderizarCartoesTipo("rec-cartoes-tipo", qt);
+        document.querySelectorAll("[data-tipo-rapido]").forEach((b) => {
+          const ativo = b.dataset.tipoRapido === tipoF;
+          b.classList.toggle("btn-primary", ativo);
+          b.classList.toggle("btn-secondary", !ativo);
+        });
+      }
 
       estado.notasRecebidas = dados.notas || [];
       estado.paginacaoRecebidas.pagina = 1;
@@ -1576,21 +1804,21 @@
   };
 
   const sincronizarComSefaz = async () => {
-    definirStatusRecebidas("Sincronizando NF-e com o Ambiente Nacional da SEFAZ (NFeDistribuicaoDFe)...");
+    definirStatusRecebidas("Buscando NF-e de produto na SEFAZ (NFeDistribuicaoDFe)...");
     const r = await executarSincNfe();
     definirStatusRecebidas(r.texto, r.erro);
     await depoisDeSincronizar();
   };
 
   const sincronizarComAdn = async () => {
-    definirStatusRecebidas("Sincronizando NFS-e (emitidas e tomadas) com o ADN Nacional...");
+    definirStatusRecebidas("Buscando NFS-e de serviço (emitidas e tomadas) no Portal Nacional (ADN)...");
     const r = await executarSincNfse();
     definirStatusRecebidas(r.texto, r.erro);
     await depoisDeSincronizar();
   };
 
   const sincronizarTudo = async () => {
-    definirStatusRecebidas("Sincronizando NF-e (SEFAZ) e depois NFS-e (ADN)...");
+    definirStatusRecebidas("Buscando NF-e de produto (SEFAZ) e depois NFS-e de serviço (Portal Nacional)...");
     const nfe = await executarSincNfe();
     const nfse = await executarSincNfse();
     definirStatusRecebidas(`${nfe.texto} | ${nfse.texto}`, nfe.erro || nfse.erro);
@@ -1861,6 +2089,37 @@
       b.addEventListener("click", () => aplicarPapelRapido(b.dataset.papelRapido || ""));
     });
     document.getElementById("btn-escopo-tudo")?.addEventListener("click", () => carregarEscopo("tudo"));
+
+    // Seletor de tipo (aba 1: filtra em memória; aba 2: recarrega do servidor), em sincronia com o select
+    document.querySelectorAll("[data-tipo-sel]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const sel = document.getElementById("filtro-tipo");
+        if (sel) sel.value = b.dataset.tipoSel || "";
+        estado.paginacaoNotas.pagina = 1;
+        renderizarTabelaNotas();
+      });
+    });
+    const aplicarTipoRec = (valor) => {
+      const sel = document.getElementById("rec-filtro-tipo");
+      if (sel) sel.value = valor;
+      carregarListaRecebidas();
+    };
+    document.querySelectorAll("[data-tipo-sel-rec]").forEach((b) => {
+      b.addEventListener("click", () => aplicarTipoRec(b.dataset.tipoSelRec || ""));
+    });
+    document.querySelectorAll("[data-tipo-rapido]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const sel = document.getElementById("rec-filtro-tipo");
+        const jaAtivo = sel && sel.value === b.dataset.tipoRapido;
+        aplicarTipoRec(jaAtivo ? "" : b.dataset.tipoRapido || "");
+      });
+    });
+    document.getElementById("rec-filtro-tipo")?.addEventListener("change", carregarListaRecebidas);
+    ["erros-xml-busca", "erros-xml-codigo"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener(id.endsWith("busca") ? "input" : "change", renderizarErrosXml);
+    });
     document.getElementById("btn-demo-recebidas")?.addEventListener("click", carregarRecebidasDemo);
     document.getElementById("btn-limpar-recebidas")?.addEventListener("click", limparNotasRecebidas);
     document.getElementById("btn-abrir-modal-cert")?.addEventListener("click", abrirModalCertificado);

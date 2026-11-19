@@ -41,8 +41,8 @@
       <button id="btn-tab-lotes" type="button" class="tab-btn active" data-tab="lotes">
         📂 Acervo &amp; Analisador de Lotes (Upload)
       </button>
-      <button id="btn-tab-recebidas" type="button" class="tab-btn" data-tab="recebidas">
-        🏛️ SEFAZ e ADN
+      <button id="btn-tab-recebidas" type="button" class="tab-btn" data-tab="recebidas" title="SEFAZ (NF-e de produto, NFeDistribuicaoDFe) e Portal Nacional da NFS-e (ADN)">
+        🏛️ Buscar notas (SEFAZ e Portal Nacional)
       </button>
     </nav>
 
@@ -187,9 +187,10 @@
                 <span id="kpi-erros-fatais" class="kpi-sub">0 ilegíveis/rejeitados</span>
               </div>
               <div class="card kpi-card kpi-accent">
-                <span class="kpi-label">Valor Total das Notas</span>
+                <span class="kpi-label" id="kpi-valor-rotulo" title="">Valor total (autorizadas)</span>
                 <strong id="kpi-valor-total" class="kpi-value">R$ 0,00</strong>
-                <span id="kpi-valor-liquido" class="kpi-sub">Líquido: R$ 0,00</span>
+                <span id="kpi-valor-liquido" class="kpi-sub">Emitidas: R$ 0,00 · Recebidas: R$ 0,00</span>
+                <span id="kpi-fora-soma" class="kpi-sub">Fora da soma: 0 cancelada(s) · 0 evento(s)</span>
               </div>
             </section>
 
@@ -208,6 +209,7 @@
 
             <!-- SUB-VISÃO 1: 📋 Notas Fiscais (Padrão Ativa) -->
             <div id="subview-notas" class="subview-panel">
+              <div id="cartoes-tipo-notas" class="type-cards" aria-live="polite"></div>
               <section class="card notes-section">
                 <div class="notes-header">
                   <div>
@@ -223,9 +225,9 @@
                     />
                     <select id="filtro-tipo" class="input-control">
                       <option value="">Todos os Tipos</option>
-                      <option value="NFE">NF-e (55)</option>
-                      <option value="NFCE">NFC-e (65)</option>
-                      <option value="NFSE">NFS-e Nacional</option>
+                      <option value="NFE">NF-e (produto)</option>
+                      <option value="NFCE">NFC-e (consumidor)</option>
+                      <option value="NFSE">NFS-e (serviço)</option>
                       <option value="RESUMO">Resumo (resNFe)</option>
                       <option value="EVENTO">Evento</option>
                       <option value="ERRO_XML">Erro XML / Layout</option>
@@ -240,6 +242,14 @@
                       <option value="">Todos os Emitentes</option>
                     </select>
                   </div>
+                </div>
+
+                <div id="seletor-tipo-notas" class="type-selector" role="group" aria-label="Escolha o tipo de nota">
+                  <span class="muted">Mostrar:</span>
+                  <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel="" data-contagem-tipo="TODAS"><span class="tipo-btn-rotulo">Todas</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+                  <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel="NFE" data-contagem-tipo="NFE"><span class="tipo-btn-rotulo">NF-e (produto)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+                  <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel="NFSE" data-contagem-tipo="NFSE"><span class="tipo-btn-rotulo">NFS-e (serviço)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+                  <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel="NFCE" data-contagem-tipo="NFCE"><span class="tipo-btn-rotulo">NFC-e (consumidor)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
                 </div>
 
                 <div class="table-responsive">
@@ -287,6 +297,46 @@
 
             <!-- SUB-VISÃO 2: 📊 Resumo & Impostos -->
             <div id="subview-resumo" class="subview-panel hidden">
+              <section class="card" id="quebras-resumo">
+                <h3>Totais por tipo e por papel <span id="quebras-criterio" class="papel-ajuda" title="" aria-label="Critério das somas">ⓘ</span></h3>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Tipo</th>
+                        <th class="num">Quantidade</th>
+                        <th class="num">Valor (R$)</th>
+                        <th class="num">Emitidas</th>
+                        <th class="num">Recebidas / tomadas</th>
+                        <th class="num">Intermediárias</th>
+                        <th class="num">Sem papel</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-quebras"></tbody>
+                  </table>
+                </div>
+                <p id="lbl-fora-somas" class="muted"></p>
+              </section>
+
+              <section class="card" id="erros-xml-secao">
+                <h3>XMLs ilegíveis (ERRO_XML)</h3>
+                <div class="filters-bar">
+                  <input id="erros-xml-busca" type="search" class="input-control" placeholder="Filtrar por arquivo ou motivo..." />
+                  <select id="erros-xml-codigo" class="input-control">
+                    <option value="">Todos os motivos</option>
+                  </select>
+                  <span id="lbl-erros-xml" class="muted"></span>
+                </div>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr><th>Arquivo</th><th>Código</th><th>Motivo</th></tr>
+                    </thead>
+                    <tbody id="tbody-erros-xml"></tbody>
+                  </table>
+                </div>
+              </section>
+
               <!-- Cards dos 8 Tributos Consolidados -->
               <section class="card taxes-section">
                 <h3>Tributos Consolidados no Escopo</h3>
@@ -418,14 +468,14 @@
             <button id="btn-abrir-modal-cert" type="button" class="btn btn-gold">
               ⚙️ Cadastrar / Trocar Certificado (.pfx)
             </button>
-            <button id="btn-sync-sefaz" type="button" class="btn btn-primary">
-              🔄 Sincronizar NF-e (SEFAZ)
+            <button id="btn-sync-sefaz" type="button" class="btn btn-primary" title="Consulta a SEFAZ (NFeDistribuicaoDFe) e traz NF-e de produto">
+              🔄 Buscar NF-e de produto (SEFAZ)
             </button>
-            <button id="btn-sync-adn" type="button" class="btn btn-primary">
-              🔄 Sincronizar NFS-e (ADN)
+            <button id="btn-sync-adn" type="button" class="btn btn-primary" title="Consulta o ADN (Ambiente de Dados Nacional) e traz NFS-e de serviço, emitidas e tomadas">
+              🔄 Buscar NFS-e de serviço (Portal Nacional)
             </button>
-            <button id="btn-sync-tudo" type="button" class="btn btn-gold">
-              🔄 Sincronizar tudo
+            <button id="btn-sync-tudo" type="button" class="btn btn-gold" title="Busca a NF-e de produto na SEFAZ e depois a NFS-e de serviço no ADN">
+              🔄 Buscar tudo
             </button>
             <button id="btn-diag-adn" type="button" class="btn btn-secondary" title="Uma consulta de leitura ao ADN; não grava nada no banco nem altera o cursor">
               🩺 Diagnóstico do ADN
@@ -470,7 +520,7 @@
           <!-- Card Cursor NSU + Seletor Rápido de Ambiente e UF -->
           <div class="sefaz-info-box">
             <div class="sefaz-info-header">
-              <span>🧭 NF-e (SEFAZ): cursor NSU &amp; ambiente</span>
+              <span title="NF-e de produto, pela SEFAZ (NFeDistribuicaoDFe): último NSU consultado">🧭 Produto (SEFAZ): até onde já buscamos</span>
               <span id="nsu-badge-ambiente" class="badge badge-type">Homologação (2)</span>
             </div>
             <div id="nsu-detalhes" class="sefaz-info-body">
@@ -529,11 +579,12 @@
           <!-- Card NFS-e (ADN) -->
           <div class="sefaz-info-box">
             <div class="sefaz-info-header">
-              <span>🧭 NFS-e (ADN): cursor NSU</span>
+              <span title="NFS-e de serviço, pelo ADN (Ambiente de Dados Nacional): último NSU consultado">🧭 Serviço (Portal Nacional): até onde já buscamos</span>
               <span id="adn-badge-ambiente" class="badge badge-type">Produção restrita (2)</span>
             </div>
             <div id="adn-detalhes" class="sefaz-info-body">
-              <div><code>NSU</code> do ADN: <strong id="lbl-adn-nsu">0</strong> <span class="muted">(cursor próprio, independente da NF-e)</span></div>
+              <div>Último <code>NSU</code> consultado: <strong id="lbl-adn-nsu">0</strong> <span class="muted">(cursor próprio, independente do de produto)</span></div>
+              <div class="muted" style="margin-top: 0.25rem;">O Portal Nacional só traz NFS-e do Padrão Nacional.</div>
               <div id="lbl-adn-ultima-execucao" class="muted" style="margin-top: 0.25rem;">Nenhuma consulta registrada.</div>
             </div>
           </div>
@@ -563,17 +614,29 @@
           <div>
             <h3>Notas emitidas e recebidas (SEFAZ e ADN, SQLite local)</h3>
             <span class="muted">
-              Exibindo <strong id="rec-kpi-total">0</strong> documento(s) | Soma filtrada: <strong id="rec-kpi-valor">R$ 0,00</strong>
+              Exibindo <strong id="rec-kpi-total">0</strong> documento(s) | <span title="Notas canceladas ficam fora da soma e aparecem à parte">Soma filtrada (sem canceladas)</span>: <strong id="rec-kpi-valor">R$ 0,00</strong> <span id="rec-kpi-fora" class="muted"></span>
             </span>
           </div>
         </div>
 
-        <div class="quick-filters" role="group" aria-label="Filtro rápido de papel">
+        <div id="rec-cartoes-tipo" class="type-cards" aria-live="polite"></div>
+        <div id="rec-seletor-tipo" class="type-selector" role="group" aria-label="Escolha o tipo de nota">
+          <span class="muted">Mostrar:</span>
+          <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel-rec="" data-contagem-tipo="TODAS"><span class="tipo-btn-rotulo">Todas</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+          <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel-rec="NFE" data-contagem-tipo="NFE"><span class="tipo-btn-rotulo">NF-e (produto)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+          <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel-rec="NFSE" data-contagem-tipo="NFSE"><span class="tipo-btn-rotulo">NFS-e (serviço)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+          <button type="button" class="btn btn-sm btn-secondary tipo-btn" data-tipo-sel-rec="NFCE" data-contagem-tipo="NFCE"><span class="tipo-btn-rotulo">NFC-e (consumidor)</span> <span class="tipo-contagem muted">0 · R$ 0,00</span></button>
+        </div>
+
+        <div class="quick-filters" role="group" aria-label="Filtro rápido de papel e tipo">
           <span class="muted">Rápido:</span>
           <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="">Todas</button>
           <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="EMITIDA" title="Notas em que o seu CNPJ é o emitente (NF-e) ou o prestador (NFS-e)">Só emitidas</button>
           <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="RECEBIDA" title="Notas em que o seu CNPJ é o destinatário (NF-e) ou o tomador (NFS-e)">Só tomadas / recebidas</button>
           <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="INTERMEDIARIA" title="NFS-e em que o seu CNPJ é o intermediário">Só intermediárias</button>
+          <span class="muted">|</span>
+          <button type="button" class="btn btn-sm btn-secondary" data-tipo-rapido="NFE" title="Só NF-e de produto">Só NF-e</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-tipo-rapido="NFSE" title="Só NFS-e de serviço">Só NFS-e</button>
         </div>
 
         <form id="form-filtros-recebidas" class="recebidas-filters-grid">
@@ -581,8 +644,9 @@
             <label for="rec-filtro-tipo">Tipo</label>
             <select id="rec-filtro-tipo" class="input-control">
               <option value="">Todos</option>
-              <option value="NFE">NF-e</option>
-              <option value="NFSE">NFS-e</option>
+              <option value="NFE">NF-e (produto)</option>
+              <option value="NFSE">NFS-e (serviço)</option>
+              <option value="NFCE">NFC-e (consumidor)</option>
             </select>
           </div>
           <div class="filter-field">
@@ -590,7 +654,7 @@
             <select id="rec-filtro-origem" class="input-control">
               <option value="">Todas</option>
               <option value="SEFAZ">SEFAZ</option>
-              <option value="ADN">ADN</option>
+              <option value="ADN">Portal Nacional (ADN)</option>
             </select>
           </div>
           <div class="filter-field">
