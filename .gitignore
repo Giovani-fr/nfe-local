@@ -9,6 +9,8 @@ env/
 .env.*
 !.env.example
 senha.txt
+senha.dpapi
+certificado/
 
 # Certificados digitais e chaves criptográficas (NUNCA versionar)
 *.pfx

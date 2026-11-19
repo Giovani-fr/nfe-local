@@ -71,7 +71,7 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 
 ### 1. Segurança do Certificado Digital e-CNPJ A1 (`.pfx`)
 - **Cadastro Visual na Interface Web ou via Variáveis de Ambiente (`.env`):**
-  - Pela interface web (aba **🏛️ Recebidas da SEFAZ** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`data/certificado/certificado.pfx`).
+  - Pela interface web (aba **🏛️ Recebidas da SEFAZ** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`certificado.pfx` na pasta segura descrita em **Onde ficam o certificado e a senha**, fora do projeto).
   - Alternativamente, para servidores headless ou automação via CLI/Docker, configure via `.env`:
   ```ini
   NFE_CERT_PATH=C:/caminho/seguro/empresa_a1.pfx
@@ -84,7 +84,7 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
   - Os módulos `sefaz/cert_a1.py` e `sefaz/dist_dfe.py` leem o arquivo `.pfx` (PKCS#12) via `cryptography` e negociam o handshake mTLS diretamente em memória RAM (`requests-pkcs12`). Nenhuma chave privada `.key` ou certificado `.pem` temporário é extraído no sistema de arquivos.
   - O CNPJ do titular é extraído automaticamente da extensão ICP-Brasil `SubjectAlternativeName` (**OID `2.16.76.1.3.3`**) ou do `Common Name`, suportando inclusive CNPJ alfanumérico.
 - **Proteção no Git e no Docker:**
-  - `.gitignore` e `.dockerignore` bloqueiam estritamente `*.pfx`, `*.p12`, `*.pem`, `*.key`, `.env`, `senha.txt` e `data/*.db`.
+  - `.gitignore` e `.dockerignore` bloqueiam estritamente `*.pfx`, `*.p12`, `*.pem`, `*.key`, `.env`, `senha.txt`, `senha.dpapi` e `data/`.
   - Para rodar em container Docker com certificado A1, monte o `.pfx` como volume **somente-leitura (`:ro`)** em tempo de execução (nunca faça `COPY` do certificado no `Dockerfile`):
     ```bash
     docker run --rm -p 127.0.0.1:8765:8765 \
@@ -97,6 +97,25 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
     ```
 - **Testes 100% Sintéticos:**
   - A suíte de testes (`pytest`) gera certificados X.509/PKCS#12 autoassinados efêmeros em memória a cada execução e utiliza envelopes SOAP simulados (`tests/fixtures/sefaz/`), sem nenhum certificado ou XML real no repositório.
+
+### Onde ficam o certificado e a senha
+
+Dito com franqueza, é isto que existe em disco:
+
+| O quê | Onde | Como está protegido |
+| :--- | :--- | :--- |
+| `certificado.pfx` | `%LOCALAPPDATA%
+fe-local\certificado\` (padrão no Windows; `~/.local/share/nfe-local/certificado/` em Linux/macOS) | **Não é criptografado por este programa.** O `.pfx` já é um arquivo protegido pela própria senha, mas quem copiar o arquivo e descobrir a senha usa seu certificado. |
+| Senha (`senha.dpapi`) | mesma pasta | Cifrada com a **DPAPI do Windows**, no escopo do usuário atual: só a mesma conta do Windows, na mesma máquina, consegue decifrar. Nunca é gravada em texto puro. |
+| `config.json` | mesma pasta | UF e ambiente (não é segredo). |
+| Banco SQLite | `data
+fe_recebidas.db` (ou `NFE_DB_PATH`) | **Sem criptografia.** Contém as notas recebidas. |
+
+- **Pasta de dados e segredos:** defina `NFE_DATA_DIR` para mudar a raiz (o certificado fica em `<NFE_DATA_DIR>\certificado`). `NFE_CERT_DIR` aponta direto para a pasta do certificado e tem prioridade.
+- **Sem DPAPI (Linux, macOS, Docker):** a senha **não é gravada em disco**. Defina `NFE_CERT_SENHA` no ambiente do processo; sem ela o certificado cadastrado não abre e o programa avisa.
+- **Limite da DPAPI:** protege contra cópia dos arquivos e outros usuários da máquina, não contra um programa malicioso rodando como você nem contra alguém logado na sua conta.
+- ⚠️ **Nunca deixe o certificado dentro de pastas sincronizadas** (OneDrive, Dropbox, Google Drive, iCloud). Elas enviam os arquivos para a nuvem e guardam versões antigas. A interface avisa quando detecta esse caso.
+- **Migração:** versões antigas gravavam `data/certificado/` dentro do projeto, com `senha.txt` em texto puro. Se essa pasta existir, a aba **Recebidas da SEFAZ** mostra o botão **"Mover e proteger agora"**: o certificado vai para a pasta segura, a senha é protegida e os arquivos antigos são sobrescritos e apagados. A senha nunca é impressa em tela nem em log. Atenção: se a pasta antiga já foi sincronizada, cópias podem existir no histórico de versões/lixeira da nuvem. Nesse caso, **troque o certificado** (revogue e emita outro) ou ao menos apague essas versões.
 
 ### 2. Regras Operacionais da SEFAZ Implementadas
 - **Sincronização Incremental por NSU (`ultNSU` / `maxNSU`):**
@@ -119,7 +138,9 @@ Todas são opcionais. **O programa não lê o arquivo `.env` sozinho**: o `.env.
 | Variável | Para que serve | Padrão |
 | :--- | :--- | :--- |
 | `NFE_CERT_PATH` / `NFE_CERT_SENHA` | Caminho e senha do certificado A1 (`.pfx`) para uso headless/CLI. O cadastro pela interface web tem prioridade. | — |
-| `NFE_CERT_DIR` | Pasta do certificado cadastrado pela interface. | `data/certificado` |
+| `NFE_DATA_DIR` | Pasta de dados e segredos; o certificado fica em `<NFE_DATA_DIR>\certificado`. O banco continua em `data\` (use `NFE_DB_PATH` para mudar). | `%LOCALAPPDATA%
+fe-local` |
+| `NFE_CERT_DIR` | Pasta do certificado cadastrado pela interface (tem prioridade sobre `NFE_DATA_DIR`). | `<NFE_DATA_DIR>\certificado` |
 | `NFE_AMBIENTE` | `homologacao` (2) ou `producao` (1). | `homologacao` |
 | `NFE_UF_AUTOR` | Código IBGE da UF do autor (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF consultado no `NFeDistribuicaoDFe`. **Se vazio, usa o CNPJ do certificado A1.** Útil quando o certificado é de um contador/matriz e a consulta é de outra empresa. Um documento passado explicitamente à chamada tem prioridade sobre esta variável. | CNPJ do certificado |
@@ -279,7 +300,7 @@ Nas tarefas 19 a 25 **não** houve uma falha concreta apanhada em revisão: a ta
 | :--- | :--- | :--- |
 | **19. Documentação do Certificado** — Documentar o manuseio seguro do `.pfx` e o funcionamento do `NFeDistribuicaoDFe`. | Risco típico: copiar o `.pfx` com `COPY` no `Dockerfile` ou versionar um `.env` com senha, o que vazaria o certificado na imagem ou no Git. | Documentei o `.pfx` como volume `:ro` em tempo de execução, reforcei `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) e deixei segredos só em variáveis de ambiente. |
 | **20. Histórico e Acervo Unificado** — Persistir lotes enviados no SQLite e consolidar todas as notas em um acervo. | Somar todos os lotes direto contaria em dobro a mesma chave carregada em dois uploads, inflando os totais financeiros. | O resumo do acervo passa por `gerar_resumo_lote`, que ignora chaves repetidas nos totais, e os endpoints `/api/lote/*` continuam compatíveis. |
-| **21. Cadastro Visual do Certificado A1** — Enviar `.pfx` + senha pela interface web e guardar no computador. | Usar o nome do arquivo enviado abriria *path traversal*, e salvar antes de validar deixaria arquivo inválido no disco. | Valido o par `.pfx + senha` em memória antes de gravar e salvo sempre com nome fixo (`data/certificado/certificado.pfx`), em pasta ignorada pelo Git. |
+| **21. Cadastro Visual do Certificado A1** — Enviar `.pfx` + senha pela interface web e guardar no computador. | Usar o nome do arquivo enviado abriria *path traversal*, e salvar antes de validar deixaria arquivo inválido no disco. | Valido o par `.pfx + senha` em memória antes de gravar e salvo sempre com nome fixo (`certificado.pfx`), em pasta fora do projeto; a senha é protegida pela DPAPI (revisão posterior: antes ela ia em `senha.txt` dentro do OneDrive). |
 | **22. Redesign da Interface** — Escopo "Todo o acervo" vs. lote, importação compacta e sub-visões (tabela, painel, assistente). | Estado só no navegador faria o `F5` apagar tudo e o upload ocuparia metade da tela. | A página recarrega o acervo do SQLite ao abrir; o upload vira barra compacta com *drag-and-drop* global. |
 | **23. Polimento e Reset do Banco** — Tabela sem rolagem horizontal, `resetar-banco` e blindagem do `.gitignore`. | Um arquivo fiscal ou planilha gerada na pasta do projeto poderia ser versionado por acidente em repositório público. | `.gitignore` bloqueia `*.xml`/`*.zip`/`*.csv`/`*.xlsx` fora de `tests/fixtures/`; o reset existe na API, na CLI e na interface (a CLI não pede confirmação). |
 | **24. Ordenação e Layouts Oficiais** — Ordenação clicável e DANFE/DANFSe fiéis ao padrão oficial. | Montar o espelho só a partir do modelo normalizado perde campos que não cabem em `DocumentoFiscal` (transportador, Código ANTT, DPS, domínios oficiais). | As rotas de espelho passam o `xml_bytes` bruto ao renderizador, com *fallback* para o `DocumentoFiscal`; a ordenação distingue número, data e texto. |

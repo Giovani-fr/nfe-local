@@ -71,7 +71,7 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 
 ### 1. Security of the ICP-Brasil e-CNPJ A1 Certificate (`.pfx`)
 - **Visual Web UI Configuration or Environment Variables (`.env`):**
-  - Directly from the web interface (**🏛️ Recebidas da SEFAZ** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`data/certificado/certificado.pfx`).
+  - Directly from the web interface (**🏛️ Recebidas da SEFAZ** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`certificado.pfx` in the safe folder described in **Where the certificate and password are stored**, outside the project).
   - Alternatively, for headless servers or CLI/Docker automation, configure via `.env`:
   ```ini
   NFE_CERT_PATH=/secure/path/company_a1.pfx
@@ -84,7 +84,7 @@ Your XML files and digital certificate never leave your infrastructure: all proc
   - `sefaz/cert_a1.py` and `sefaz/dist_dfe.py` load the `.pfx` (PKCS#12) bundle via `cryptography` and negotiate the mTLS handshake directly in RAM (`requests-pkcs12`). No temporary `.pem` or unencrypted `.key` files are ever written to disk.
   - The company's CNPJ is automatically extracted from the ICP-Brasil `SubjectAlternativeName` extension (**OID `2.16.76.1.3.3`**) or the `Common Name`, supporting both numeric and alphanumeric CNPJs.
 - **Git & Docker Isolation:**
-  - Both `.gitignore` and `.dockerignore` strictly exclude `*.pfx`, `*.p12`, `*.pem`, `*.key`, `.env`, `senha.txt`, and `data/*.db`.
+  - Both `.gitignore` and `.dockerignore` strictly exclude `*.pfx`, `*.p12`, `*.pem`, `*.key`, `.env`, `senha.txt`, `senha.dpapi`, and `data/`.
   - When running in Docker, mount the `.pfx` file as a **read-only volume (`:ro`)** at runtime (never bake certificates into an image):
     ```bash
     docker run --rm -p 127.0.0.1:8765:8765 \
@@ -97,6 +97,23 @@ Your XML files and digital certificate never leave your infrastructure: all proc
     ```
 - **100% Synthetic Test Suite:**
   - The automated test suite (`pytest`) generates ephemeral self-signed X.509/PKCS#12 certificates in memory and uses synthetic SOAP envelopes (`tests/fixtures/sefaz/`), with zero real certificates or tax data in the repository.
+
+### Where the certificate and password are stored
+
+Candidly, this is what exists on disk:
+
+| What | Where | Protection |
+| :--- | :--- | :--- |
+| `certificado.pfx` | `%LOCALAPPDATA%\nfe-local\certificado\` (Windows default; `~/.local/share/nfe-local/certificado/` on Linux/macOS) | **Not encrypted by this program.** The `.pfx` is protected only by its own password. |
+| Password (`senha.dpapi`) | same folder | Encrypted with **Windows DPAPI** (current-user scope): only the same Windows account on the same machine can decrypt it. Never written as plain text. |
+| `config.json` | same folder | State code and environment (not secret). |
+| SQLite database | `data\nfe_recebidas.db` (or `NFE_DB_PATH`) | **Unencrypted.** |
+
+- Set `NFE_DATA_DIR` to move the data/secrets root; `NFE_CERT_DIR` points straight at the certificate folder and wins.
+- **Without DPAPI (Linux, macOS, Docker)** the password is **not written to disk**: set `NFE_CERT_SENHA` in the process environment.
+- DPAPI does not protect against malware running as you or someone logged into your account.
+- ⚠️ **Never keep the certificate inside synced folders** (OneDrive, Dropbox, Google Drive, iCloud); the UI warns when it detects this.
+- **Migration:** old versions stored `data/certificado/` inside the project with a plain-text `senha.txt`. If it exists, the UI offers **"Mover e proteger agora"**, which moves the certificate, protects the password and overwrites/deletes the old files. If that folder was ever synced, cloud version history may still hold copies: consider replacing the certificate.
 
 ### 2. SEFAZ Operational Rules Implemented
 - **Incremental NSU Synchronization (`ultNSU` / `maxNSU`):**
@@ -119,7 +136,8 @@ All are optional. **The program does not read the `.env` file by itself**: `.env
 | Variable | Purpose | Default |
 | :--- | :--- | :--- |
 | `NFE_CERT_PATH` / `NFE_CERT_SENHA` | Path and password of the A1 certificate (`.pfx`) for headless/CLI use. A certificate registered in the web UI takes priority. | — |
-| `NFE_CERT_DIR` | Folder of the certificate registered through the UI. | `data/certificado` |
+| `NFE_DATA_DIR` | Data and secrets folder; the certificate lives in `<NFE_DATA_DIR>\certificado`. The database stays in `data\` (use `NFE_DB_PATH`). | `%LOCALAPPDATA%\nfe-local` |
+| `NFE_CERT_DIR` | Folder of the certificate registered through the UI (wins over `NFE_DATA_DIR`). | `<NFE_DATA_DIR>\certificado` |
 | `NFE_AMBIENTE` | `homologacao` (2) or `producao` (1). | `homologacao` |
 | `NFE_UF_AUTOR` | IBGE code of the author's state (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF queried in `NFeDistribuicaoDFe`. **If empty, the A1 certificate's CNPJ is used.** Useful when the certificate belongs to an accountant/head office and the query is for another company. A document passed explicitly to the call takes priority over this variable. | Certificate CNPJ |
@@ -279,7 +297,7 @@ For tasks 19 to 25 there was **no** concrete failure caught in review: the table
 | :--- | :--- | :--- |
 | **19. Certificate Documentation** — Document safe `.pfx` handling and how `NFeDistribuicaoDFe` works. | Typical risk: copying the `.pfx` with `COPY` in the `Dockerfile` or committing a `.env` with a password, leaking the certificate into the image or Git. | Documented the `.pfx` as a runtime `:ro` volume, hardened `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) and kept secrets in environment variables only. |
 | **20. History & Unified Archive** — Persist uploaded batches in SQLite and consolidate all invoices into one archive. | Summing every batch directly would double-count the same key uploaded twice, inflating financial totals. | The archive summary goes through `gerar_resumo_lote`, which ignores repeated keys in the totals, and the `/api/lote/*` endpoints stay compatible. |
-| **21. Visual A1 Certificate Registration** — Upload `.pfx` + password through the web UI and store it locally. | Using the uploaded file name would open *path traversal*, and saving before validating would leave an invalid file on disk. | The `.pfx + password` pair is validated in memory before writing, and the file is always saved under a fixed name (`data/certificado/certificado.pfx`) in a Git-ignored folder. |
+| **21. Visual A1 Certificate Registration** — Upload `.pfx` + password through the web UI and store it locally. | Using the uploaded file name would open *path traversal*, and saving before validating would leave an invalid file on disk. | The `.pfx + password` pair is validated in memory before writing, and the file is always saved under a fixed name (`certificado.pfx`) in a folder outside the project, with the password protected by DPAPI (later review: it used to go to `senha.txt` inside OneDrive). |
 | **22. UI Redesign** — "Whole archive" vs. single-batch scope, compact import and sub-views (table, dashboard, assistant). | Browser-only state would make `F5` wipe everything, and the upload area would take half the screen. | The page reloads the archive from SQLite on open; the upload becomes a compact bar with global drag-and-drop. |
 | **23. Polish & Database Reset** — Table without horizontal scroll, `resetar-banco` and `.gitignore` hardening. | A fiscal file or generated spreadsheet in the project folder could be committed by accident to a public repo. | `.gitignore` blocks `*.xml`/`*.zip`/`*.csv`/`*.xlsx` outside `tests/fixtures/`; reset exists in the API, CLI and UI (the CLI does not ask for confirmation). |
 | **24. Sorting & Official Layouts** — Clickable sorting and DANFE/DANFSe faithful to the official layout. | Rendering the mirror only from the normalized model loses fields that do not fit `DocumentoFiscal` (carrier, ANTT code, DPS, official domains). | Mirror routes pass the raw `xml_bytes` to the renderer, with a fallback to `DocumentoFiscal`; sorting distinguishes numbers, dates and text. |
