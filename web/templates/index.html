@@ -42,7 +42,7 @@
         📂 Acervo &amp; Analisador de Lotes (Upload)
       </button>
       <button id="btn-tab-recebidas" type="button" class="tab-btn" data-tab="recebidas">
-        🏛️ Recebidas da SEFAZ (DistDFe)
+        🏛️ SEFAZ e ADN
       </button>
     </nav>
 
@@ -92,6 +92,17 @@
               </div>
             </button>
 
+            <!-- Visão total: uploads + SEFAZ + ADN, sem duplicar chaves -->
+            <button id="btn-escopo-tudo" type="button" class="scope-acervo-btn">
+              <div class="scope-acervo-title">
+                <span>🧩 Tudo (acervo + SEFAZ + ADN)</span>
+                <span class="badge badge-gold">Unificado</span>
+              </div>
+              <div id="lbl-tudo-sub" class="scope-acervo-sub">
+                Uploads, NF-e da SEFAZ e NFS-e do ADN, sem duplicar chaves
+              </div>
+            </button>
+
             <div class="history-list-header">
               <span>📦 Histórico de Lotes Importados</span>
             </div>
@@ -133,6 +144,9 @@
 
           <!-- Painel de Resultados do Escopo Ativo (Acervo ou Lote Individual) -->
           <div id="painel-lote" class="hidden">
+            <div id="aviso-escopo-tudo" class="card muted hidden" style="padding:0.6rem 0.9rem; margin-bottom:0.75rem;">
+              Visão unificada: as notas do SEFAZ e do ADN entram <strong>sem revalidação e sem itens/impostos por item</strong> (só os totais). Em chave repetida vale o upload. KPIs e resumo contam NF-e, NFC-e e NFS-e.
+            </div>
             <!-- Cabeçalho do Escopo Ativo + Botões de Exportação -->
             <section class="lote-toolbar card">
               <div class="lote-meta">
@@ -234,6 +248,7 @@
                       <tr>
                         <th class="col-arquivo sortable" data-sort="arquivo" title="Ordenar por Arquivo / Chave">Arquivo / Chave <span class="sort-ind" aria-hidden="true">⇅</span></th>
                         <th class="col-tipo sortable" data-sort="tipo" title="Ordenar por Tipo">Tipo <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-origem sortable" data-sort="origem" title="Upload, SEFAZ ou ADN (e o papel do CNPJ, quando conhecido)">Origem <span class="sort-ind" aria-hidden="true">⇅</span></th>
                         <th class="col-numero sortable" data-sort="numero" title="Ordenar por Número da Nota">Nº / Série <span class="sort-ind" aria-hidden="true">⇅</span></th>
                         <th class="col-emissao-nota sortable" data-sort="data_emissao" title="Ordenar por Data de Emissão">Emissão <span class="sort-ind" aria-hidden="true">⇅</span></th>
                         <th class="col-parte sortable" data-sort="emitente" title="Ordenar por Emitente / Prestador">Emitente / Prestador <span class="sort-ind" aria-hidden="true">⇅</span></th>
@@ -396,15 +411,24 @@
       <section class="card sefaz-status-panel">
         <div class="sefaz-status-header">
           <div>
-            <h2>Sincronização de Notas Emitidas Contra o CNPJ (<code>NFeDistribuicaoDFe</code>)</h2>
-            <p class="muted">Consulta nacional por <code>ultNSU</code> em banco SQLite local com trava automática contra bloqueio <code>cStat 656</code> (1 hora).</p>
+            <h2>Notas emitidas e recebidas pelo seu CNPJ</h2>
+            <p class="muted"><strong>NF-e</strong> (produto) pela SEFAZ (<code>NFeDistribuicaoDFe</code>) e <strong>NFS-e</strong> (serviço, emitidas e tomadas) pelo ADN Nacional, no mesmo banco local. NFC-e e outros XMLs entram só por upload. Só sincroniza quando você clica.</p>
           </div>
           <div class="sefaz-actions">
             <button id="btn-abrir-modal-cert" type="button" class="btn btn-gold">
               ⚙️ Cadastrar / Trocar Certificado (.pfx)
             </button>
             <button id="btn-sync-sefaz" type="button" class="btn btn-primary">
-              🔄 Sincronizar com a SEFAZ
+              🔄 Sincronizar NF-e (SEFAZ)
+            </button>
+            <button id="btn-sync-adn" type="button" class="btn btn-primary">
+              🔄 Sincronizar NFS-e (ADN)
+            </button>
+            <button id="btn-sync-tudo" type="button" class="btn btn-gold">
+              🔄 Sincronizar tudo
+            </button>
+            <button id="btn-diag-adn" type="button" class="btn btn-secondary" title="Uma consulta de leitura ao ADN; não grava nada no banco nem altera o cursor">
+              🩺 Diagnóstico do ADN
             </button>
             <button id="btn-demo-recebidas" type="button" class="btn btn-secondary">
               🧪 Carregar Recebidas de Demonstração
@@ -446,12 +470,13 @@
           <!-- Card Cursor NSU + Seletor Rápido de Ambiente e UF -->
           <div class="sefaz-info-box">
             <div class="sefaz-info-header">
-              <span>🧭 Cursor de Sincronização (NSU) &amp; Ambiente</span>
+              <span>🧭 NF-e (SEFAZ): cursor NSU &amp; ambiente</span>
               <span id="nsu-badge-ambiente" class="badge badge-type">Homologação (2)</span>
             </div>
             <div id="nsu-detalhes" class="sefaz-info-body">
               <div><code>ultNSU</code>: <strong id="lbl-ult-nsu">000000000000000</strong> | <code>maxNSU</code>: <strong id="lbl-max-nsu">000000000000000</strong></div>
               <div id="lbl-ultimo-retorno" class="muted" style="margin-top: 0.25rem;">Nenhuma consulta registrada.</div>
+              <div id="lbl-nfe-ultima-execucao" class="muted" style="margin-top: 0.25rem;"></div>
             </div>
             <div class="sefaz-quick-config">
               <div class="quick-config-item">
@@ -500,6 +525,35 @@
           </div>
         </div>
 
+        <div class="sefaz-cards-grid" style="margin-top: 1rem;">
+          <!-- Card NFS-e (ADN) -->
+          <div class="sefaz-info-box">
+            <div class="sefaz-info-header">
+              <span>🧭 NFS-e (ADN): cursor NSU</span>
+              <span id="adn-badge-ambiente" class="badge badge-type">Produção restrita (2)</span>
+            </div>
+            <div id="adn-detalhes" class="sefaz-info-body">
+              <div><code>NSU</code> do ADN: <strong id="lbl-adn-nsu">0</strong> <span class="muted">(cursor próprio, independente da NF-e)</span></div>
+              <div id="lbl-adn-ultima-execucao" class="muted" style="margin-top: 0.25rem;">Nenhuma consulta registrada.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="banner-bloqueio-adn" class="sefaz-lock-banner hidden" role="alert"></div>
+
+        <div id="passo-a-passo-cert" class="card hidden" style="margin-top: 1rem; padding: 0.9rem 1.1rem;">
+          <strong>Para buscar as notas automaticamente você precisa cadastrar o certificado digital A1:</strong>
+          <ol class="steps-list">
+            <li>Tenha em mãos o arquivo <code>.pfx</code> (ou <code>.p12</code>) do e-CNPJ A1 e a senha dele.</li>
+            <li>Clique em <strong>⚙️ Cadastrar / Trocar Certificado (.pfx)</strong> acima e escolha o arquivo.</li>
+            <li>Informe a senha, escolha o ambiente (produção restrita para testar, produção para valer) e clique em <strong>Validar e Salvar</strong>.</li>
+            <li>Volte aqui e clique em <strong>🩺 Diagnóstico do ADN</strong> para testar a conexão sem gravar nada; depois em <strong>Sincronizar tudo</strong>.</li>
+          </ol>
+          <span class="muted">Sem certificado você ainda pode usar <strong>🧪 Carregar Recebidas de Demonstração</strong> (dados fictícios) e enviar XMLs na primeira aba.</span>
+        </div>
+
+        <div id="adn-diagnostico" class="card hidden" style="margin-top: 1rem; padding: 0.9rem 1.1rem;" aria-live="polite"></div>
+
         <div id="recebidas-sync-status" class="upload-status" aria-live="polite"></div>
       </section>
 
@@ -507,14 +561,47 @@
       <section class="card notes-section">
         <div class="notes-header">
           <div>
-            <h3>Notas Fiscais Recebidas (SQLite Local)</h3>
+            <h3>Notas emitidas e recebidas (SEFAZ e ADN, SQLite local)</h3>
             <span class="muted">
               Exibindo <strong id="rec-kpi-total">0</strong> documento(s) | Soma filtrada: <strong id="rec-kpi-valor">R$ 0,00</strong>
             </span>
           </div>
         </div>
 
+        <div class="quick-filters" role="group" aria-label="Filtro rápido de papel">
+          <span class="muted">Rápido:</span>
+          <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="">Todas</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="EMITIDA" title="Notas em que o seu CNPJ é o emitente (NF-e) ou o prestador (NFS-e)">Só emitidas</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="RECEBIDA" title="Notas em que o seu CNPJ é o destinatário (NF-e) ou o tomador (NFS-e)">Só tomadas / recebidas</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-papel-rapido="INTERMEDIARIA" title="NFS-e em que o seu CNPJ é o intermediário">Só intermediárias</button>
+        </div>
+
         <form id="form-filtros-recebidas" class="recebidas-filters-grid">
+          <div class="filter-field">
+            <label for="rec-filtro-tipo">Tipo</label>
+            <select id="rec-filtro-tipo" class="input-control">
+              <option value="">Todos</option>
+              <option value="NFE">NF-e</option>
+              <option value="NFSE">NFS-e</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-origem">Origem</label>
+            <select id="rec-filtro-origem" class="input-control">
+              <option value="">Todas</option>
+              <option value="SEFAZ">SEFAZ</option>
+              <option value="ADN">ADN</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <label for="rec-filtro-papel">Papel</label>
+            <select id="rec-filtro-papel" class="input-control">
+              <option value="">Todos</option>
+              <option value="EMITIDA">Emitida</option>
+              <option value="RECEBIDA">Recebida</option>
+              <option value="INTERMEDIARIA">Intermediária</option>
+            </select>
+          </div>
           <div class="filter-field">
             <label for="rec-filtro-emitente">Emitente (CNPJ ou Razão Social)</label>
             <input
@@ -560,6 +647,7 @@
               <option value="">Todas</option>
               <option value="NFE_COMPLETA">Completa (procNFe)</option>
               <option value="RESUMO_NFE">Resumo (resNFe)</option>
+              <option value="NFSE_NACIONAL">NFS-e (Padrão Nacional)</option>
             </select>
           </div>
           <div class="filter-field">
@@ -567,7 +655,7 @@
             <select id="rec-filtro-situacao" class="input-control">
               <option value="">Todas</option>
               <option value="AUTORIZADA">AUTORIZADA</option>
-              <option value="RESUMO">RESUMO</option>
+              <option value="RESUMO">RESUMO (exige manifestação)</option>
               <option value="CANCELADA">CANCELADA</option>
             </select>
           </div>
@@ -585,12 +673,15 @@
           <table class="data-table data-table-recebidas">
             <thead>
               <tr>
-                <th class="col-nsu sortable" data-sort="nsu" title="Ordenar por NSU">NSU <span class="sort-ind" aria-hidden="true">⇅</span></th>
-                <th class="col-emissao sortable" data-sort="data_emissao" title="Ordenar por Data de Emissão">Emissão <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-tipo-rec sortable" data-sort="tipo" title="Ordenar por Tipo">Tipo <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-origem-rec sortable" data-sort="origem" title="De onde veio a nota: SEFAZ (NF-e), ADN (NFS-e) ou Upload">Origem <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-papel-rec sortable" data-sort="papel" title="Papel do CNPJ de consulta na nota. Critério: o documento do certificado/consulta é comparado com o emitente (prestador) = Emitida, com o destinatário (tomador) = Recebida, e com o intermediário (NFS-e) = Intermediária. Sem CNPJ de referência aparece —.">Papel <span class="papel-ajuda" aria-hidden="true">ⓘ</span> <span class="sort-ind" aria-hidden="true">⇅</span></th>
                 <th class="col-num-chave sortable" data-sort="numero" title="Ordenar por Número da Nota">Número / Chave <span class="sort-ind" aria-hidden="true">⇅</span></th>
-                <th class="col-parte-rec sortable" data-sort="emitente" title="Ordenar por Emitente">Emitente <span class="sort-ind" aria-hidden="true">⇅</span></th>
-                <th class="num col-valor-rec sortable" data-sort="valor_total" title="Ordenar por Valor Total">Valor Total (R$) <span class="sort-ind" aria-hidden="true">⇅</span></th>
-                <th class="col-sit-rec sortable" data-sort="situacao" title="Ordenar por Situação">Situação / Manifestação <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-emissao sortable" data-sort="data_emissao" title="Ordenar por Data de Emissão">Emissão <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-parte-rec sortable" data-sort="emitente" title="Ordenar por Emitente / Prestador">Emitente / Prestador <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-parte-rec sortable" data-sort="destinatario" title="Ordenar por Destinatário / Tomador">Destinatário / Tomador <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="num col-valor-rec sortable" data-sort="valor_total" title="Ordenar por Valor Total">Valor (R$) <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-sit-rec sortable" data-sort="situacao" title="Ordenar por Situação">Situação <span class="sort-ind" aria-hidden="true">⇅</span></th>
                 <th class="col-actions">Ações</th>
               </tr>
             </thead>
@@ -642,7 +733,7 @@
       </div>
       <div class="modal-body">
         <p class="muted" style="margin-bottom: 1rem;">
-          O arquivo <code>.pfx</code> ou <code>.p12</code> é validado em memória com <code>cryptography</code> e armazenado exclusivamente na pasta local <code>data/certificado/</code> (ignorada pelo Git e pelo Docker). Nenhuma chave privada desencriptada é gravada em disco.
+          O arquivo <code>.pfx</code> ou <code>.p12</code> é validado em memória com <code>cryptography</code> e guardado numa pasta do seu usuário <strong>fora do projeto</strong> (<code>%LOCALAPPDATA%\nfe-local\certificado</code> no Windows; ou <code>NFE_DATA_DIR</code>). A senha é protegida pela DPAPI do Windows. Atenção: durante a conexão, a biblioteca de mTLS grava por instantes um arquivo temporário com a chave cifrada na pasta temporária do sistema e o apaga em seguida. Não deixe o certificado em pastas sincronizadas (OneDrive, Dropbox, Google Drive).
         </p>
 
         <form id="form-cadastro-certificado" class="cert-form-grid">

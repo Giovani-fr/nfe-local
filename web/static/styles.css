@@ -789,43 +789,47 @@ body {
   padding: 0.52rem 0.45rem;
 }
 
-/* Larguras proporcionais — Aba 1 (9 colunas, soma = 100%) */
+/* Larguras proporcionais — Aba 1 (10 colunas, soma = 100%) */
 .data-table-notas .col-arquivo {
-  width: 15%;
+  width: 13%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-notas .col-tipo {
-  width: 6%;
+  width: 5%;
+}
+
+.data-table-notas .col-origem {
+  width: 9%;
 }
 
 .data-table-notas .col-numero {
-  width: 8%;
+  width: 7%;
   word-break: break-word;
 }
 
 .data-table-notas .col-emissao-nota {
-  width: 8%;
+  width: 7%;
   white-space: nowrap;
 }
 
 .data-table-notas .col-parte {
-  width: 15.5%;
+  width: 14%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-notas .col-valor {
-  width: 9%;
+  width: 8%;
 }
 
 .data-table-notas .col-status {
-  width: 11%;
+  width: 10%;
 }
 
 .data-table-notas .col-actions {
-  width: 12%;
+  width: 13%;
 }
 
 /* Cabeçalhos clicáveis de ordenação */
@@ -858,39 +862,85 @@ body {
   color: var(--accent-gold);
 }
 
-/* Larguras proporcionais — Aba 2 (soma = 100%) */
-.data-table-recebidas .col-nsu {
-  width: 12%;
-  word-break: break-all;
+/* Larguras proporcionais — Aba 2 (10 colunas, soma = 100%) */
+.data-table-recebidas .col-tipo-rec {
+  width: 5%;
+}
+
+.data-table-recebidas .col-origem-rec {
+  width: 6%;
+}
+
+.data-table-recebidas .col-papel-rec {
+  width: 8%;
 }
 
 .data-table-recebidas .col-emissao {
-  width: 9%;
+  width: 7%;
   white-space: nowrap;
 }
 
 .data-table-recebidas .col-num-chave {
-  width: 19%;
+  width: 15%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-recebidas .col-parte-rec {
-  width: 23%;
+  width: 14.5%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-recebidas .col-valor-rec {
-  width: 11%;
+  width: 9%;
 }
 
 .data-table-recebidas .col-sit-rec {
-  width: 15%;
+  width: 10%;
 }
 
 .data-table-recebidas .col-actions {
   width: 11%;
+}
+
+.papel-ajuda {
+  cursor: help;
+  opacity: 0.75;
+}
+
+.quick-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.steps-list {
+  margin: 0.5rem 0 0.5rem 1.2rem;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.diag-table th {
+  text-align: left;
+  width: 28%;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  color: var(--text-muted, inherit);
+  font-weight: 600;
+  vertical-align: top;
+}
+
+.diag-table td {
+  padding: 0.25rem 0;
+  overflow-wrap: anywhere;
 }
 
 /* Chave compacta + botão copiar 1 clique */

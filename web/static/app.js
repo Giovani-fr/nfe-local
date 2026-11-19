@@ -38,6 +38,33 @@
 
   const fmtMoedaRS = (valor) => `R$ ${fmtMoeda(valor)}`;
 
+  const ROTULOS_ORIGEM = { DISTDFE: "SEFAZ", SEFAZ: "SEFAZ", ADN: "ADN", UPLOAD: "Upload" };
+  const ROTULOS_PAPEL = {
+    EMITIDA: "Emitida",
+    RECEBIDA: "Recebida",
+    INTERMEDIARIA: "Intermediária",
+  };
+  const ROTULOS_TIPO_NOTA = { NFE: "NF-e", NFCE: "NFC-e", NFSE: "NFS-e", RESUMO: "NF-e (resumo)" };
+  const DICA_PAPEL =
+    "Critério: o CNPJ do certificado/consulta é comparado com o emitente (prestador) = Emitida, " +
+    "com o destinatário (tomador) = Recebida e com o intermediário (NFS-e) = Intermediária.";
+
+  const rotuloOrigem = (o) => ROTULOS_ORIGEM[String(o || "UPLOAD").toUpperCase()] || String(o);
+  const rotuloPapel = (p) => ROTULOS_PAPEL[p] || "—";
+  const rotuloTipoNota = (t) => ROTULOS_TIPO_NOTA[t] || String(t || "-");
+
+  const badgeOrigem = (o) => {
+    const r = rotuloOrigem(o);
+    const classe = r === "SEFAZ" ? "badge-type" : r === "ADN" ? "badge-gold" : "badge-ok";
+    return `<span class="badge ${classe}">${escaparHtml(r)}</span>`;
+  };
+
+  const badgePapel = (p) => {
+    if (!p) return '<span class="muted" title="Sem CNPJ de referência para comparar">—</span>';
+    const classe = p === "EMITIDA" ? "badge-ok" : p === "RECEBIDA" ? "badge-type" : "badge-gold";
+    return `<span class="badge ${classe}" title="${escaparHtml(DICA_PAPEL)}">${escaparHtml(rotuloPapel(p))}</span>`;
+  };
+
   const fmtDoc = (doc) => {
     if (!doc) return "-";
     const limpo = String(doc).replace(/[^0-9A-Za-z]/g, "").toUpperCase();
@@ -246,6 +273,18 @@
       }
     }
 
+    const btnTudo = document.getElementById("btn-escopo-tudo");
+    if (btnTudo) btnTudo.classList.toggle("active", estado.escopoId === "tudo");
+    const subTudo = document.getElementById("lbl-tudo-sub");
+    if (subTudo) {
+      if (estado.escopoId === "tudo" && estado.resumo) {
+        const ct = estado.resumo.contagem;
+        subTudo.textContent = `${ct.total_arquivos} doc(s) únicos • ${fmtMoedaRS(estado.resumo.valor_total_notas)}`;
+      } else {
+        subTudo.textContent = "Uploads, NF-e da SEFAZ e NFS-e do ADN, sem duplicar chaves";
+      }
+    }
+
     if (subAcervo) {
       if (estado.escopoId === "acervo" && estado.resumo) {
         const c = estado.resumo.contagem;
@@ -324,11 +363,19 @@
     }
 
     const ehAcervo = dados.lote_id === "acervo";
+    const ehTudo = dados.lote_id === "tudo";
     const badgeEscopo = document.getElementById("badge-escopo-ativo");
     const tituloEscopo = document.getElementById("lbl-escopo-titulo");
     const lblLoteId = document.getElementById("lbl-lote-id");
 
-    if (ehAcervo) {
+    if (ehTudo) {
+      if (badgeEscopo) {
+        badgeEscopo.className = "badge badge-gold";
+        badgeEscopo.textContent = "VISÃO TOTAL";
+      }
+      if (tituloEscopo) tituloEscopo.textContent = "🧩 Tudo (acervo + SEFAZ + ADN)";
+      if (lblLoteId) lblLoteId.textContent = "";
+    } else if (ehAcervo) {
       if (badgeEscopo) {
         badgeEscopo.className = "badge badge-gold";
         badgeEscopo.textContent = "ACERVO UNIFICADO";
@@ -347,7 +394,8 @@
     }
 
     const dt = new Date(dados.criado_em);
-    document.getElementById("lbl-criado-em").textContent = ehAcervo
+    document.getElementById("aviso-escopo-tudo")?.classList.toggle("hidden", !ehTudo);
+    document.getElementById("lbl-criado-em").textContent = ehAcervo || ehTudo
       ? `Consolidado do banco SQLite local (última atualização em ${dt.toLocaleString("pt-BR")})`
       : `Processado em ${dt.toLocaleString("pt-BR")}`;
 
@@ -448,7 +496,7 @@
 
   const carregarEscopo = async (escopoId = "acervo") => {
     try {
-      const url = escopoId === "acervo" ? "/api/acervo" : `/api/lote/${encodeURIComponent(escopoId)}`;
+      const url = escopoId === "acervo" ? "/api/acervo" : `/api/lote/${encodeURIComponent(escopoId)}`; // "tudo" usa /api/lote/tudo
       const resp = await fetch(url);
       if (!resp.ok) return;
       const dados = await resp.json();
@@ -637,6 +685,9 @@
         case "tipo":
           cmp = compararTexto(docA ? docA.tipo : "ERRO_XML", docB ? docB.tipo : "ERRO_XML");
           break;
+        case "origem":
+          cmp = compararTexto(rotuloOrigem(a.res.origem), rotuloOrigem(b.res.origem));
+          break;
         case "numero":
           cmp = compararNumeroInteligente(docA?.numero, docB?.numero);
           break;
@@ -765,6 +816,7 @@
             ${doc?.chave_acesso ? renderizarChaveComCopia(doc.chave_acesso) : ""}
           </td>
           <td class="col-tipo"><span class="badge badge-type">${escaparHtml(tipo)}</span></td>
+          <td class="col-origem">${badgeOrigem(res.origem)}${res.papel ? ` ${badgePapel(res.papel)}` : ""}</td>
           <td class="col-numero">${escaparHtml(numSerie)}</td>
           <td class="col-emissao-nota" title="${escaparHtml(dataEmiCompleta)}">${escaparHtml(dataEmiCurta)}</td>
           <td class="col-parte">${emitenteStr}</td>
@@ -803,7 +855,7 @@
 
     tbody.innerHTML =
       linhas.join("") ||
-      '<tr><td colspan="9" style="text-align:center;" class="muted">Nenhum documento corresponde aos filtros aplicados.</td></tr>';
+      '<tr><td colspan="10" style="text-align:center;" class="muted">Nenhum documento corresponde aos filtros aplicados.</td></tr>';
   };
 
   const abrirModalDetalhes = (idx) => {
@@ -973,6 +1025,60 @@
     }
   };
 
+  const mensagemUltimaSync = (log, origem) => {
+    if (!log) return "Nenhuma sincronização registrada.";
+    const quando = log.ts ? new Date(log.ts).toLocaleString("pt-BR") : "-";
+    let txt = `Última execução (${quando}): `;
+    const gravados = `${log.novos_docs} documento(s) gravado(s) em ${log.paginas} página(s)`;
+    if (origem === "NFE") {
+      if (log.cstat === "138") txt += `${gravados}.`;
+      else if (log.cstat === "137") txt += "sem notas novas.";
+      else if (log.cstat === "656") txt += "consumo indevido (656): aguarde 1 hora.";
+      else txt += `${log.motivo || log.cstat || "sem detalhes"}.`;
+    } else if (log.cstat === "DOCUMENTOS_LOCALIZADOS") {
+      txt += `${gravados}; ainda pode haver mais notas.`;
+    } else if (log.cstat === "NENHUM_DOCUMENTO_LOCALIZADO") {
+      txt += log.novos_docs > 0 ? `${gravados}; fila zerada.` : "sem notas novas.";
+    } else {
+      txt += `${log.motivo || log.cstat || "sem detalhes"}`;
+    }
+    if (Number(log.tentativas) > 1) txt += ` ${log.tentativas} tentativa(s) de conexão.`;
+    if (log.falhas_conexao) txt += ` Falhas de conexão: ${log.falhas_conexao}.`;
+    return txt;
+  };
+
+  const preencherPainelUnificado = (st) => {
+    const passo = document.getElementById("passo-a-passo-cert");
+    if (passo) passo.classList.toggle("hidden", !!st.certificado_configurado);
+
+    const lblNfe = document.getElementById("lbl-nfe-ultima-execucao");
+    if (lblNfe) lblNfe.textContent = mensagemUltimaSync(st.ultimo_sync_nfe, "NFE");
+
+    const badgeAdn = document.getElementById("adn-badge-ambiente");
+    if (badgeAdn) {
+      badgeAdn.className = st.ambiente === 1 ? "badge badge-ok" : "badge badge-warn";
+      badgeAdn.textContent = st.ambiente === 1 ? "Produção (1)" : "Produção restrita (2)";
+    }
+    const lblNsu = document.getElementById("lbl-adn-nsu");
+    if (lblNsu && st.cursor_adn) lblNsu.textContent = String(st.cursor_adn.ultimo_nsu);
+    const lblAdn = document.getElementById("lbl-adn-ultima-execucao");
+    if (lblAdn) lblAdn.textContent = mensagemUltimaSync(st.ultimo_sync_nfse, "NFSE");
+
+    const bannerAdn = document.getElementById("banner-bloqueio-adn");
+    const btnAdn = document.getElementById("btn-sync-adn");
+    if (bannerAdn) {
+      if (st.bloqueado_adn) {
+        const minutos = Math.max(1, Math.ceil((st.segundos_bloqueio_adn_restantes || 0) / 60));
+        bannerAdn.classList.remove("hidden");
+        bannerAdn.innerHTML = `⏳ <strong>NFS-e (ADN) em espera:</strong> o ADN pediu para reduzir o ritmo ou ficou indisponível. Nenhuma consulta será feita por ~${minutos} min. Motivo: ${escaparHtml(st.cursor_adn?.ultimo_motivo || "limite de uso")}`;
+        if (btnAdn) btnAdn.disabled = true;
+      } else {
+        bannerAdn.classList.add("hidden");
+        if (btnAdn) btnAdn.disabled = false;
+      }
+    }
+  };
+
   const carregarStatusRecebidas = async () => {
     const badgeCert = document.getElementById("cert-badge-status");
     const detalhesCert = document.getElementById("cert-detalhes");
@@ -1083,6 +1189,7 @@
           if (btnSync) btnSync.disabled = false;
         }
       }
+      preencherPainelUnificado(st);
     } catch (_) {
       badgeCert.className = "badge badge-type";
       badgeCert.textContent = "Indisponível";
@@ -1260,6 +1367,18 @@
         case "situacao":
           cmp = compararTexto(a.situacao, b.situacao);
           break;
+        case "tipo":
+          cmp = compararTexto(a.tipo_documento, b.tipo_documento);
+          break;
+        case "origem":
+          cmp = compararTexto(rotuloOrigem(a.origem), rotuloOrigem(b.origem));
+          break;
+        case "papel":
+          cmp = compararTexto(a.papel_visao || "", b.papel_visao || "");
+          break;
+        case "destinatario":
+          cmp = compararTexto(a.destinatario_nome, b.destinatario_nome);
+          break;
         default:
           cmp = 0;
       }
@@ -1299,7 +1418,7 @@
 
     if (notas.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="7" style="text-align:center;" class="muted">Nenhuma nota recebida encontrada para os filtros selecionados.</td></tr>';
+        '<tr><td colspan="10" style="text-align:center;" class="muted">Nenhuma nota encontrada para os filtros selecionados. Sincronize ou carregue a demonstração.</td></tr>';
       return;
     }
 
@@ -1307,26 +1426,34 @@
       .map((n) => {
         const dtEmi = fmtDataCurta(n.data_emissao);
         const dtEmiCompleta = fmtDataHoraCompleta(n.data_emissao);
+        const ehNfse = n.tipo_documento === "NFSE";
         const numSerie = n.numero ? `${n.numero} / ${n.serie || "-"}` : "Resumo s/ número";
         const chaveUrl = encodeURIComponent(n.chave);
+        const rotuloEspelho = ehNfse ? "📄 DANFSe" : "📄 DANFE";
         return `
           <tr>
-            <td class="col-nsu"><code>${escaparHtml(n.nsu)}</code></td>
-            <td class="col-emissao" title="${escaparHtml(dtEmiCompleta)}">${escaparHtml(dtEmi)}</td>
+            <td class="col-tipo-rec"><span class="badge badge-type">${escaparHtml(rotuloTipoNota(n.tipo_documento))}</span></td>
+            <td class="col-origem-rec">${badgeOrigem(n.origem)}</td>
+            <td class="col-papel-rec">${badgePapel(n.papel_visao)}</td>
             <td class="col-num-chave">
               <strong>${escaparHtml(numSerie)}</strong>
               ${renderizarChaveComCopia(n.chave)}
             </td>
+            <td class="col-emissao" title="${escaparHtml(dtEmiCompleta)}">${escaparHtml(dtEmi)}</td>
             <td class="col-parte-rec">
               <strong class="parte-nome">${escaparHtml(n.emitente_nome || "-")}</strong>
               <code class="doc-code">${escaparHtml(fmtDoc(n.emitente_documento))}</code>
+            </td>
+            <td class="col-parte-rec">
+              <strong class="parte-nome">${escaparHtml(n.destinatario_nome || "-")}</strong>
+              <code class="doc-code">${escaparHtml(fmtDoc(n.destinatario_documento))}</code>
             </td>
             <td class="num col-valor-rec"><strong>${fmtMoeda(n.valor_total)}</strong></td>
             <td class="col-sit-rec"><div class="badges-wrap">${renderizarBadgesRecebida(n)}</div></td>
             <td class="col-actions">
               <div class="row-actions">
                 <a class="btn btn-sm btn-primary" href="/recebidas/${chaveUrl}/espelho" target="_blank" rel="noopener">
-                  📄 DANFE
+                  ${rotuloEspelho}
                 </a>
                 <a class="btn btn-sm btn-ghost" href="/recebidas/${chaveUrl}/xml" download>
                   ⬇ XML
@@ -1351,7 +1478,13 @@
     const vMax = (document.getElementById("rec-filtro-valor-max")?.value || "").trim();
     const categoria = (document.getElementById("rec-filtro-categoria")?.value || "").trim();
     const situacao = (document.getElementById("rec-filtro-situacao")?.value || "").trim();
+    const tipoF = (document.getElementById("rec-filtro-tipo")?.value || "").trim();
+    const origemF = (document.getElementById("rec-filtro-origem")?.value || "").trim();
+    const papelF = (document.getElementById("rec-filtro-papel")?.value || "").trim();
 
+    if (tipoF) params.set("tipo", tipoF);
+    if (origemF) params.set("origem", origemF);
+    if (papelF) params.set("papel", papelF);
     if (emitente) params.set("emitente", emitente);
     if (dtInicio) params.set("data_inicio", dtInicio);
     if (dtFim) params.set("data_fim", dtFim);
@@ -1381,28 +1514,167 @@
     }
   };
 
-  const sincronizarComSefaz = async () => {
-    definirStatusRecebidas("Sincronizando com o Ambiente Nacional da SEFAZ (NFeDistribuicaoDFe)...");
+  const mostrarPassoACerto = () => {
+    document.getElementById("passo-a-passo-cert")?.classList.remove("hidden");
+  };
+
+  const executarSincNfe = async () => {
     try {
       const resp = await fetch("/api/recebidas/sincronizar", { method: "POST" });
       const dados = await resp.json();
+      if (resp.status === 503) {
+        mostrarPassoACerto();
+        return { erro: true, texto: "NF-e: cadastre o certificado digital A1 (passo a passo acima)." };
+      }
       if (!resp.ok) {
-        definirStatusRecebidas(dados.detail || `Falha na sincronização (HTTP ${resp.status}).`, true);
-        await carregarStatusRecebidas();
+        return { erro: true, texto: `NF-e: ${dados.detail || `falha na sincronização (HTTP ${resp.status}).`}` };
+      }
+      return {
+        erro: false,
+        texto: `NF-e (SEFAZ): ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s).`,
+      };
+    } catch (err) {
+      return { erro: true, texto: `NF-e: erro de comunicação (${err.message}).` };
+    }
+  };
+
+  const executarSincNfse = async () => {
+    try {
+      const resp = await fetch("/api/recebidas/sincronizar-adn", { method: "POST" });
+      const dados = await resp.json();
+      if (resp.status === 503) {
+        mostrarPassoACerto();
+        return { erro: true, texto: "NFS-e: cadastre o certificado digital A1 (passo a passo acima)." };
+      }
+      if (!resp.ok) {
+        return { erro: true, texto: `NFS-e: ${dados.detail || `falha na sincronização (HTTP ${resp.status}).`}` };
+      }
+      let txt = `NFS-e (ADN): ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s)`;
+      const ign = Object.entries(dados.ignorados_por_tipo || {});
+      if (ign.length) txt += `; ignorados: ${ign.map(([tp, q]) => `${q} ${tp}`).join(", ")}`;
+      if (dados.com_erro_processamento) txt += `; ${dados.com_erro_processamento} com erro de leitura`;
+      if (Number(dados.tentativas_usadas) > Number(dados.paginas_consultadas)) {
+        txt += `; ${dados.tentativas_usadas} tentativa(s) de conexão`;
+      }
+      txt += ".";
+      if (["ERRO", "REJEICAO", "BLOQUEIO"].includes(dados.encerrado_por)) {
+        return { erro: true, texto: `${txt} ${dados.mensagem || ""}`.trim() };
+      }
+      if (dados.encerrado_por === "LIMITE_PAGINAS") {
+        txt += " Ainda há notas: clique de novo para continuar do cursor.";
+      }
+      return { erro: false, texto: txt };
+    } catch (err) {
+      return { erro: true, texto: `NFS-e: erro de comunicação (${err.message}).` };
+    }
+  };
+
+  const depoisDeSincronizar = async () => {
+    await carregarStatusRecebidas();
+    await carregarListaRecebidas();
+    if (estado.escopoId === "tudo") await carregarEscopo("tudo");
+  };
+
+  const sincronizarComSefaz = async () => {
+    definirStatusRecebidas("Sincronizando NF-e com o Ambiente Nacional da SEFAZ (NFeDistribuicaoDFe)...");
+    const r = await executarSincNfe();
+    definirStatusRecebidas(r.texto, r.erro);
+    await depoisDeSincronizar();
+  };
+
+  const sincronizarComAdn = async () => {
+    definirStatusRecebidas("Sincronizando NFS-e (emitidas e tomadas) com o ADN Nacional...");
+    const r = await executarSincNfse();
+    definirStatusRecebidas(r.texto, r.erro);
+    await depoisDeSincronizar();
+  };
+
+  const sincronizarTudo = async () => {
+    definirStatusRecebidas("Sincronizando NF-e (SEFAZ) e depois NFS-e (ADN)...");
+    const nfe = await executarSincNfe();
+    const nfse = await executarSincNfse();
+    definirStatusRecebidas(`${nfe.texto} | ${nfse.texto}`, nfe.erro || nfse.erro);
+    await depoisDeSincronizar();
+  };
+
+  const renderizarDiagnosticoAdn = (d) => {
+    const nomeAmb = d.ambiente === 1 ? "Produção (1)" : "Produção restrita (2)";
+    const fmtData = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "-");
+    const msgs = (lista) =>
+      lista && lista.length
+        ? lista.map((m) => `${escaparHtml(m.codigo)} - ${escaparHtml(m.descricao)}`).join("<br>")
+        : "(nenhum)";
+    const itens = Object.entries(d.itens_por_tipo_documento || {});
+    const falha = d.falha_conexao || (d.falhas_conexao && d.falhas_conexao.length ? d.falhas_conexao[d.falhas_conexao.length - 1] : null);
+    const linhas = [
+      ["Ambiente", escaparHtml(nomeAmb)],
+      ["URL base", `<code>${escaparHtml(d.url_base)}</code>`],
+      ["CNPJ de consulta", `<code>${escaparHtml(d.cnpj_consulta_mascarado)}</code>`],
+      [
+        "Certificado válido",
+        `${fmtData(d.certificado_valido_de)} a ${fmtData(d.certificado_valido_ate)}${d.certificado_vencido ? " (VENCIDO)" : ""}`,
+      ],
+      ["Tentativas", `${d.tentativas_realizadas} de ${d.tentativas_solicitadas} (${d.tentativas_com_falha} com falha) · timeout ${d.timeout_segundos}s`],
+      ["Conexão TLS", escaparHtml(d.conexao_tls)],
+    ];
+    if (d.tls_versao || d.tls_cifrador) {
+      linhas.push(["TLS negociado", `${escaparHtml(d.tls_versao || "-")} / ${escaparHtml(d.tls_cifrador || "-")}`]);
+    }
+    linhas.push(
+      ["HTTP", d.http_status ? String(d.http_status) : "-"],
+      ["StatusProcessamento", escaparHtml(d.status_processamento || "-")],
+      ["TipoConsulta", escaparHtml(d.tipo_consulta || "-")],
+      ["Erros", msgs(d.erros)],
+      ["Alertas", msgs(d.alertas)],
+      ["Itens no lote", itens.length ? itens.map(([tp, q]) => `${escaparHtml(tp)}: ${q}`).join(" · ") : "0"]
+    );
+    if (falha) {
+      linhas.push(
+        ["Falha: etapa", escaparHtml(falha.etapa)],
+        ["Falha: exceção raiz", `${escaparHtml(falha.excecao_raiz)}${falha.codigo_so ? ` (${escaparHtml(falha.codigo_so)})` : ""}`],
+        ["Falha: servidor encerrou / tempo esgotado", `${falha.servidor_encerrou_conexao ? "SIM" : "NÃO"} / ${falha.tempo_esgotado ? "SIM" : "NÃO"}`]
+      );
+    }
+    const selo = d.sucesso
+      ? '<span class="badge badge-ok">Funcionou</span>'
+      : '<span class="badge badge-err">Atenção</span>';
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+        <strong>🩺 Diagnóstico do ADN (somente leitura, nada foi gravado)</strong> ${selo}
+      </div>
+      <p style="margin:0.5rem 0;">${escaparHtml(d.interpretacao || "")}</p>
+      <table class="diag-table"><tbody>
+        ${linhas.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}
+      </tbody></table>
+    `;
+  };
+
+  const diagnosticarAdn = async () => {
+    const box = document.getElementById("adn-diagnostico");
+    if (!box) return;
+    box.classList.remove("hidden");
+    box.textContent = "Consultando o ADN (uma chamada de leitura)...";
+    try {
+      const resp = await fetch("/api/recebidas/adn/diagnostico?tentativas=2", { method: "POST" });
+      const dados = await resp.json();
+      if (resp.status === 503) {
+        box.classList.add("hidden");
+        mostrarPassoACerto();
+        definirStatusRecebidas("Cadastre o certificado digital A1 para usar o diagnóstico (passo a passo acima).", true);
         return;
       }
-      definirStatusRecebidas(
-        `Sincronização concluída: ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s).`
-      );
-      await carregarStatusRecebidas();
-      await carregarListaRecebidas();
+      if (!resp.ok) {
+        box.textContent = dados.detail || `Falha no diagnóstico (HTTP ${resp.status}).`;
+        return;
+      }
+      box.innerHTML = renderizarDiagnosticoAdn(dados);
     } catch (err) {
-      definirStatusRecebidas(`Erro de comunicação: ${err.message}`, true);
+      box.textContent = `Erro de comunicação: ${err.message}`;
     }
   };
 
   const carregarRecebidasDemo = async () => {
-    definirStatusRecebidas("Carregando lote sintético DistDFe no SQLite local...");
+    definirStatusRecebidas("Carregando NF-e e NFS-e sintéticas no SQLite local...");
     try {
       const resp = await fetch("/api/recebidas/demo", { method: "POST" });
       const dados = await resp.json();
@@ -1411,8 +1683,9 @@
         return;
       }
       definirStatusRecebidas(
-        `Demonstração DistDFe carregada (${dados.documentos_processados} docZip processados, ultNSU=${dados.cursor.ultimo_nsu}).`
+        `Demonstração carregada: NF-e da SEFAZ (${dados.documentos_processados} docZip) e ${dados.adn_novas_notas || 0} NFS-e sintéticas do ADN (emitidas, tomadas, intermediária e uma cancelada).`
       );
+      if (estado.escopoId === "tudo") await carregarEscopo("tudo");
       await carregarStatusRecebidas();
       await carregarListaRecebidas();
     } catch (err) {
@@ -1429,10 +1702,28 @@
       "rec-filtro-valor-max",
       "rec-filtro-categoria",
       "rec-filtro-situacao",
+      "rec-filtro-tipo",
+      "rec-filtro-origem",
+      "rec-filtro-papel",
     ].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = "";
     });
+    marcarPapelRapido("");
+    carregarListaRecebidas();
+  };
+
+  const marcarPapelRapido = (papel) => {
+    document.querySelectorAll("[data-papel-rapido]").forEach((b) => {
+      b.classList.toggle("btn-primary", (b.dataset.papelRapido || "") === papel);
+      b.classList.toggle("btn-secondary", (b.dataset.papelRapido || "") !== papel);
+    });
+  };
+
+  const aplicarPapelRapido = (papel) => {
+    const sel = document.getElementById("rec-filtro-papel");
+    if (sel) sel.value = papel;
+    marcarPapelRapido(papel);
     carregarListaRecebidas();
   };
 
@@ -1563,6 +1854,13 @@
 
     // Controles SEFAZ e Certificado A1
     document.getElementById("btn-sync-sefaz")?.addEventListener("click", sincronizarComSefaz);
+    document.getElementById("btn-sync-adn")?.addEventListener("click", sincronizarComAdn);
+    document.getElementById("btn-sync-tudo")?.addEventListener("click", sincronizarTudo);
+    document.getElementById("btn-diag-adn")?.addEventListener("click", diagnosticarAdn);
+    document.querySelectorAll("[data-papel-rapido]").forEach((b) => {
+      b.addEventListener("click", () => aplicarPapelRapido(b.dataset.papelRapido || ""));
+    });
+    document.getElementById("btn-escopo-tudo")?.addEventListener("click", () => carregarEscopo("tudo"));
     document.getElementById("btn-demo-recebidas")?.addEventListener("click", carregarRecebidasDemo);
     document.getElementById("btn-limpar-recebidas")?.addEventListener("click", limparNotasRecebidas);
     document.getElementById("btn-abrir-modal-cert")?.addEventListener("click", abrirModalCertificado);

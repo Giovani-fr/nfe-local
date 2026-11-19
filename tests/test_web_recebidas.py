@@ -392,8 +392,37 @@ class TestRotasRecebidasSEFAZ:
         assert resp.status_code == 200
         html = resp.text
         assert "Analisador de Lotes (Upload)" in html
-        assert "Recebidas da SEFAZ (DistDFe)" in html
-        assert "Sincronizar com a SEFAZ" in html
+        assert "SEFAZ e ADN" in html
+        assert "Recebidas da SEFAZ (DistDFe)" not in html
+        for rotulo in (
+            "Sincronizar NF-e (SEFAZ)",
+            "Sincronizar NFS-e (ADN)",
+            "Sincronizar tudo",
+            "Diagnóstico do ADN",
+            "Tudo (acervo + SEFAZ + ADN)",
+            "Só emitidas",
+            "Só tomadas",
+            "NFS-e (ADN): cursor NSU",
+            "NF-e (SEFAZ): cursor NSU",
+        ):
+            assert rotulo in html
+        for ident in (
+            "btn-sync-sefaz",
+            "btn-sync-adn",
+            "btn-sync-tudo",
+            "btn-diag-adn",
+            "btn-escopo-tudo",
+            "rec-filtro-tipo",
+            "rec-filtro-origem",
+            "rec-filtro-papel",
+            "passo-a-passo-cert",
+            "adn-diagnostico",
+            'data-papel-rapido="EMITIDA"',
+            'data-papel-rapido="RECEBIDA"',
+        ):
+            assert ident in html
+        assert "Critério" in html  # dica do papel (comparação com o CNPJ do certificado)
+        assert 'data-sort="origem"' in html
         assert "Carregar Recebidas de Demonstração" in html
         assert "Cadastrar / Trocar Certificado (.pfx)" in html
         assert "form-cadastro-certificado" in html
@@ -405,7 +434,9 @@ class TestRotasRecebidasSEFAZ:
         assert "btn-limpar-recebidas" in html
         assert "col-actions" in html
         for campo_sort in (
-            'data-sort="nsu"',
+            'data-sort="tipo"',
+            'data-sort="papel"',
+            'data-sort="destinatario"',
             'data-sort="data_emissao"',
             'data-sort="numero"',
             'data-sort="emitente"',
