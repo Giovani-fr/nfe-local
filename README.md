@@ -103,8 +103,8 @@ Medição real executada via [`scripts/benchmark_lote.py`](scripts/benchmark_lot
 
 | Cenário Medido | Tempo Total | Velocidade (Throughput) | Pico de Memória (`tracemalloc`) | Resultado |
 | :--- | :---: | :---: | :---: | :--- |
-| **Modo Streaming (`iterar_lote` + `gerar_resumo_lote`)** | **5,92 s** | **169,1 XMLs/s** | **0,63 MB** | Mantém apenas 1 árvore DOM por vez em memória |
-| **Lote Completo + Exportação XLSX (4 Abas `openpyxl`)** | **14,56 s** | **68,7 XMLs/s** | **32,44 MB** | Gera planilha `.xlsx` completa de **275,6 KB** |
+| **Modo Streaming (`iterar_lote` + `gerar_resumo_lote`)** | **7,07 s** | **141,4 XMLs/s** | **0,63 MB** | Mantém apenas 1 árvore DOM por vez em memória |
+| **Lote Completo + Exportação XLSX (4 Abas `openpyxl`)** | **7,57 s** | **132,0 XMLs/s** | **32,43 MB** | Gera planilha `.xlsx` completa de **275,6 KB** |
 
 Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`](docs/benchmark.md).
 
