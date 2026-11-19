@@ -9,7 +9,17 @@ Ferramenta **100% local, determinística e sem custo obrigatório de API** para 
 
 Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: todo o processamento ocorre localmente via Python (`lxml` blindado contra XXE, `Pydantic v2` com `Decimal` exato, `cryptography` PKCS#12 em memória, `SQLite` e `FastAPI`).
 
-![Demonstração do nfe-local](docs/prints/demo.svg)
+### Telas reais (geradas com dados 100% sintéticos)
+
+| Tabela de notas (ordenável, paginada) | Resumo & impostos |
+| :---: | :---: |
+| ![Tabela de notas](docs/prints/tabela-notas.png) | ![Painel gerencial](docs/prints/painel-gerencial.png) |
+| **Recebidas da SEFAZ (DistDFe)** | **DANFE oficial (NF-e 55)** |
+| ![Recebidas da SEFAZ](docs/prints/recebidas-sefaz.png) | ![DANFE](docs/prints/danfe.png) |
+
+![DANFSe v2.0 com QR Code](docs/prints/danfse.png)
+
+> Todas as telas usam as fixtures fictícias de `tests/fixtures/` (empresas e CNPJs inventados); nenhum dado real aparece.
 
 ---
 
@@ -22,11 +32,12 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | **Validador de Chave e CNPJ Alfanumérico (NT 2014.002 v1.40)** | ✅ Pronto | Testes unitários do cálculo de Módulo 11 via `ord(c) - 48` para chaves de 44 posições e CNPJs com letras e números (`12.ABC.345/01DE-35`). |
 | **Batimento Financeiro ($\sum \text{itens} == \text{vProd}$ e equação $\text{vNF}$)** | ✅ Pronto | Testado com notas íntegras e notas com divergência proposital de centavos/totais (`Decimal` sem ponto flutuante). |
 | **Agregador de Lote em Streaming e Exportação CSV / XLSX (4 Abas)** | ✅ Pronto | Benchmark real com **1.000 XMLs** (`0,63 MB` de pico em streaming) + blindagem contra *CSV/Excel Formula Injection* e preservação de chaves de 44/50 posições como texto (`@`). |
-| **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe)** | ✅ Pronto | Testado via `TestClient` com geração de código de barras SVG puro (Code 128-C e Code 128-B) e marca d'água para homologação. |
+| **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto | Testado via `TestClient` com código de barras SVG puro (Code 128-C e 128-B), QR Code SVG puro no DANFSe e marca d'água para homologação. |
 | **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
-| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado, enviando apenas agregados contábeis (zero XML bruto), cache em disco e franquia horária configurável. |
-| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 180 testes automatizados. |
+| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado, sem nunca enviar XML bruto (só agregados e um resumo de até 30 notas — veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade)), com cache em disco e franquia horária configurável. |
+| **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 200 testes automatizados. |
 | **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
+| **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
 
 ---
 
@@ -42,12 +53,16 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
    - **Regra 4 (Duplicidade no Lote):** aponta chaves de acesso duplicadas dentro da mesma remessa e evita dupla contagem nos somatórios financeiros.
    - **Regra 5 (Alertas Operacionais):** destaca notas emitidas em **Ambiente de Homologação (`tpAmb=2`)** ou **Sem Protocolo de Autorização (`protNFe`)**.
 3. **Espelhos Imprimíveis A4 (DANFE e DANFSe NT 008/2026):**
-   - **DANFE (NF-e/NFC-e):** layout A4 retrato com canhoto destacável, código de barras **Code 128 em SVG puro** (chaveando automaticamente entre Subset C numérico e Subset B alfanumérico), duplicatas, cálculo de impostos e itens.
-   - **DANFSe (NFS-e Padrão Nacional):** layout fiel à **NT 008/2026**, exibindo chave de 50 dígitos, Prestador, Tomador, Serviço (`cTribNac`/`cNBS`), ISSQN, Retenções Federais e Reforma Tributária (`IBS/CBS`).
-4. **Resumo Gerencial e Exportação Contábil (CSV e XLSX):**
+   - **DANFE (NF-e/NFC-e) — layout oficial:** A4 retrato com os 9 blocos oficiais (canhoto, cabeçalho triplo com `0 - ENTRADA / 1 - SAÍDA`, protocolo, destinatário, duplicatas, cálculo do imposto, transportador/volumes, tabela de itens de 14 colunas e dados adicionais) e código de barras **Code 128 em SVG puro** (chaveando entre Subset C numérico e Subset B alfanumérico).
+   - **DANFSe v2.0 (NFS-e Padrão Nacional) — NT 008/2026:** chave de 50 dígitos, Prestador, Tomador, Serviço (`cTribNac`/`cNBS`), ISSQN, Retenções Federais, Reforma Tributária (`IBS/CBS`), Lei 12.741/2012 e **QR Code em SVG puro** (26 mm × 26 mm) apontando para a consulta pública do portal nacional da NFS-e.
+4. **Tabelas Ágeis para Acervos Grandes (15.000+ notas):**
+   - **Leitura sob demanda do SQLite:** a listagem e o resumo do acervo não leem nem descompactam o XML bruto; ele só é lido, nota a nota, ao abrir *Detalhes*, o espelho DANFE/DANFSe ou ao baixar o XML.
+   - **Paginação:** a tabela renderiza só a página ativa (`50 / 100 / 250 / Todas`, padrão `100`); filtros e ordenação continuam valendo sobre todo o conjunto e voltam para a página 1.
+   - **Ordenação clicável:** cabeçalhos ordenam de forma numérica, cronológica ou alfabética (`⇅` / `▲` / `▼`) nas Abas 1 e 2.
+5. **Resumo Gerencial e Exportação Contábil (CSV e XLSX):**
    - Consolida totais por **Emitente/Prestador**, por **Imposto** (`ICMS`, `ICMS-ST`, `IPI`, `PIS`, `COFINS`, `ISS`, `Retenções`, `IBS/CBS`) e por **Período** (`YYYY-MM`).
    - Exporta CSV (UTF-8 com BOM para abrir direto no Excel em português) e planilha **XLSX com 4 abas** (`Notas`, `Itens`, `Resumo` e `Alertas`).
-5. **Sincronização de Notas Emitidas Contra o CNPJ (`NFeDistribuicaoDFe` — Fase 2):**
+6. **Sincronização de Notas Emitidas Contra o CNPJ (`NFeDistribuicaoDFe` — Fase 2):**
    - Consulta SOAP 1.2 com mTLS em memória usando Certificado Digital A1 (`.pfx`), descompacta lotes `<docZip>` (`base64 + gzip`), armazena no SQLite local e disponibiliza a aba **"🏛️ Recebidas da SEFAZ (DistDFe)"** com filtros por emitente, período, faixa de valor, categoria e situação.
 
 ---
@@ -97,6 +112,34 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 
 ---
 
+## Variáveis de Ambiente
+
+Todas são opcionais. **O programa não lê o arquivo `.env` sozinho**: o `.env.example` é só um modelo. Defina as variáveis no terminal (`$env:NOME="valor"` no PowerShell), nas variáveis do Windows ou com `docker run --env-file .env` / `-e`.
+
+| Variável | Para que serve | Padrão |
+| :--- | :--- | :--- |
+| `NFE_CERT_PATH` / `NFE_CERT_SENHA` | Caminho e senha do certificado A1 (`.pfx`) para uso headless/CLI. O cadastro pela interface web tem prioridade. | — |
+| `NFE_CERT_DIR` | Pasta do certificado cadastrado pela interface. | `data/certificado` |
+| `NFE_AMBIENTE` | `homologacao` (2) ou `producao` (1). | `homologacao` |
+| `NFE_UF_AUTOR` | Código IBGE da UF do autor (`cUFAutor`). | `35` |
+| `NFE_CNPJ_CONSULTA` | CNPJ/CPF consultado no `NFeDistribuicaoDFe`. **Se vazio, usa o CNPJ do certificado A1.** Útil quando o certificado é de um contador/matriz e a consulta é de outra empresa. Um documento passado explicitamente à chamada tem prioridade sobre esta variável. | CNPJ do certificado |
+| `NFE_DB_PATH` | Arquivo SQLite local (lotes, notas recebidas, cursor NSU). | `data/nfe_recebidas.db` |
+| `LLM_API_KEY` | Liga o Assistente Analítico. **Vazia = assistente desligado** e nada sai do computador. | — |
+| `LLM_BASE_URL` | Endpoint compatível com OpenAI (`/chat/completions`): OpenAI, Gemini (modo compat), Groq, Ollama local etc. | `https://api.openai.com/v1` |
+| `LLM_MODEL` | Nome do modelo. | `gpt-4o-mini` |
+| `LLM_MAX_CHAMADAS_HORA` | Franquia horária de chamadas ao provedor (perguntas respondidas pelo cache não consomem). | `20` |
+
+### Assistente LLM opcional e privacidade
+
+Com `LLM_API_KEY` vazia, **nada** é enviado à internet. Com o assistente ligado, ao fazer uma pergunta o programa envia ao provedor configurado em `LLM_BASE_URL` um JSON montado localmente (`reports/assistente_lote.py`, função `montar_contexto_lote_llm`) com:
+
+- **agregados do lote:** contagens, totais financeiros, impostos totais e totais por emitente (razão social e CNPJ) e por mês;
+- **uma amostra de até 30 notas** (as com problemas primeiro): nome do arquivo, tipo, número, emitente (razão social e CNPJ), valor total, validade e alertas.
+
+**Nunca** são enviados: o XML bruto, itens, chaves de acesso, destinatários/tomadores, certificado ou senha. Mesmo assim, razão social e CNPJ de emitentes e nomes de arquivo **saem do computador** quando o assistente está ligado; se isso não for aceitável, deixe `LLM_API_KEY` vazia ou aponte `LLM_BASE_URL` para um modelo local (ex.: Ollama em `http://127.0.0.1:11434/v1`).
+
+---
+
 ## Velocidade e Memória Medidas (Benchmark de 1.000 XMLs)
 
 Medição real executada via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) em **Windows 11 (Python 3.12.10, Intel64)** processando um lote misto de **1.000 XMLs sintéticos** (250 NF-e 55 numéricas, 250 NFC-e 65, 250 NF-e com CNPJ alfanumérico e 250 NFS-e Padrão Nacional):
@@ -115,12 +158,16 @@ Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`]
 ### Opção 1: Instalador Automático no Windows (Recomendado)
 
 1. Dê dois cliques em **`instalar.bat`**.
-   - O script verifica o Python 3.12, cria um ambiente virtual isolado fora do OneDrive (`%USERPROFILE%\venvs\nfe-local`), instala as dependências e cria o atalho **"Visualizador NF-e Local"** na sua Área de Trabalho.
+   - O script procura **exclusivamente o Python 3.12** (`py -3.12` ou o caminho padrão do 3.12). Se só achar outra versão (ex.: 3.13), ele informa qual encontrou e explica que precisa do 3.12; ter outro Python instalado não atrapalha.
+   - Se o 3.12 faltar e o Windows tiver o `winget`, o script **pergunta `S/N`** antes de instalar o Python 3.12 e depois localiza o `python.exe` pelo caminho completo (não precisa reiniciar o Windows). Sem `winget`, ele abre a página de download do Python 3.12.x.
+   - Em seguida cria um ambiente virtual isolado fora do OneDrive (`%USERPROFILE%\venvs\nfe-local`), instala as dependências, roda `pip install -e .` (registra o comando `nfe-local` na pasta `Scripts` desse ambiente) e cria o atalho **"Visualizador NF-e Local"** na Área de Trabalho. Tudo fica registrado em `instalar.log`.
 2. Dê dois cliques no atalho da Área de Trabalho ou em **`iniciar.bat`**.
    - O navegador abrirá automaticamente em `http://127.0.0.1:8765`.
    - Na aba **Analisador de Lotes**, clique em **"Carregar Lote de Demonstração"**; na aba **Recebidas da SEFAZ (DistDFe)**, clique em **"🧪 Carregar Recebidas de Demonstração"** para testar os filtros sem precisar de certificado A1 real.
 
 ### Opção 2: Via Linha de Comando (CLI)
+
+Pré-requisito: ter rodado o `instalar.bat` (ele registra o comando `nfe-local`). Ative o ambiente com `%USERPROFILE%\venvs\nfe-local\Scripts\Activate.ps1` ou chame `%USERPROFILE%\venvs\nfe-local\Scripts\nfe-local.exe` diretamente. Sem instalar o pacote, use `python -m api.cli` no lugar de `nfe-local`.
 
 ```powershell
 # Exibir resumo gerencial no terminal e exportar planilha XLSX de uma pasta inteira
@@ -137,6 +184,10 @@ nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
 
 # Iniciar o servidor web manualmente
 nfe-local servidor --host 127.0.0.1 --port 8765
+
+# Zerar o banco SQLite local (lotes, notas recebidas, cursores NSU e logs) e compactar o arquivo.
+# Atenção: executa imediatamente, sem pedir confirmação.
+nfe-local resetar-banco [--db data/nfe_recebidas.db] [--json]
 ```
 
 ### Opção 3: Instalação Manual via Python
@@ -145,6 +196,7 @@ nfe-local servidor --host 127.0.0.1 --port 8765
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+pip install -e .          # registra o comando nfe-local (opcional)
 uvicorn api.app:app --host 127.0.0.1 --port 8765
 ```
 
@@ -205,6 +257,13 @@ O projeto foi desenvolvido de forma incremental (uma tarefa por vez do [`docs/BA
 | **13. Certificado A1 e SOAP 1.2** | Leitor PKCS#12 em memória e cliente SOAP 1.2 `NFeDistribuicaoDFe`. | O valor bruto `OtherName` do OID ICP-Brasil `2.16.76.1.3.3` inclui cabeçalho ASN.1 DER (`tag + length`), que em `UTF8String` de 14 bytes (`0x0c 0x0e`) vira caracter alfanumérico se limpo apenas por regex. | Decodifiquei o cabeçalho ASN.1 DER antes de limpar o documento e usei `Pkcs12Adapter` para negociar mTLS em memória sem gravar `.pem` em disco. |
 | **14–15. Controle de NSU e `docZip`** | Máquina de estados `138`/`137`/`656` e descompactador `<docZip>`. | Fazer uma nova consulta após atingir `ultNSU == maxNSU` no `cStat 138` dispara rejeição `656` (Consumo Indevido) na SEFAZ. | O loop encerra imediatamente quando `ultNSU >= maxNSU`, sincroniza o `ultNSU` devolvido na própria rejeição `656` e limita a leitura GZIP em `10 MB` contra *gzip bomb*. |
 | **16–18. SQLite, Tela Recebidas e Testes E2E** | Persistência SQLite, aba Web filtrável e suíte E2E simulada (`138`, `137`, `656`). | Um `resNFe` atrasado poderia sobrescrever um `procNFe` completo já salvo, ou cliques repetidos na UI poderiam reiniciar o bloqueio de 1h da SEFAZ. | Adicionei proteção contra downgrade (`NFE_COMPLETA` nunca volta a `RESUMO_NFE`), reflexo automático de cancelamento (`110111`/`110112`), bloqueio HTTP `429` local durante a janela do `656` e validação E2E 100% offline. |
+| **19. Documentação do Certificado** | Documentar o manuseio seguro do `.pfx` e o funcionamento do `NFeDistribuicaoDFe`. | Risco típico: copiar o `.pfx` com `COPY` no `Dockerfile` ou versionar um `.env` com senha, o que vazaria o certificado na imagem ou no Git. | Documentei o `.pfx` como volume `:ro` em tempo de execução, reforcei `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) e deixei segredos só em variáveis de ambiente. |
+| **20. Histórico e Acervo Unificado** | Persistir lotes enviados no SQLite e consolidar todas as notas em um acervo. | Somar todos os lotes direto contaria em dobro a mesma chave carregada em dois uploads, inflando os totais financeiros. | O resumo do acervo passa por `gerar_resumo_lote`, que ignora chaves repetidas nos totais, e os endpoints `/api/lote/*` continuam compatíveis. |
+| **21. Cadastro Visual do Certificado A1** | Enviar `.pfx` + senha pela interface web e guardar no computador. | Usar o nome do arquivo enviado abriria *path traversal*, e salvar antes de validar deixaria arquivo inválido no disco. | Valido o par `.pfx + senha` em memória antes de gravar e salvo sempre com nome fixo (`data/certificado/certificado.pfx`), em pasta ignorada pelo Git. |
+| **22. Redesign da Interface** | Escopo "Todo o acervo" vs. lote, importação compacta e sub-visões (tabela, painel, assistente). | Estado só no navegador faria o `F5` apagar tudo e o upload ocuparia metade da tela. | A página recarrega o acervo do SQLite ao abrir; o upload vira barra compacta com *drag-and-drop* global. |
+| **23. Polimento e Reset do Banco** | Tabela sem rolagem horizontal, `resetar-banco` e blindagem do `.gitignore`. | Um arquivo fiscal ou planilha gerada na pasta do projeto poderia ser versionado por acidente em repositório público. | `.gitignore` bloqueia `*.xml`/`*.zip`/`*.csv`/`*.xlsx` fora de `tests/fixtures/`; o reset existe na API, na CLI e na interface (a CLI não pede confirmação). |
+| **24. Ordenação e Layouts Oficiais** | Ordenação clicável e DANFE/DANFSe fiéis ao padrão oficial. | Montar o espelho só a partir do modelo normalizado perde campos que não cabem em `DocumentoFiscal` (transportador, Código ANTT, DPS, domínios oficiais). | As rotas de espelho passam o `xml_bytes` bruto ao renderizador, com *fallback* para o `DocumentoFiscal`; a ordenação distingue número, data e texto. |
+| **25. QR Code, Lazy Load e Paginação** | QR Code no DANFSe v2.0 e escala para 15.000+ notas. | Listar o acervo descompactando o `xml_gzip` de cada nota estoura memória/tempo, e renderizar milhares de linhas trava o navegador. | `obter_acervo_unificado(incluir_xmls_brutos=False)` não toca no XML; índice `idx_lotes_itens_chave` + leitura pontual por nota; DOM só com a página ativa; QR Code em SVG puro (`qrcode`, sem Pillow). |
 
 ---
 
@@ -215,7 +274,7 @@ O projeto foi desenvolvido de forma incremental (uma tarefa por vez do [`docs/BA
 ruff check .
 ruff format --check .
 
-# Executar toda a suíte de testes automatizados (180+ testes 100% offline)
+# Executar toda a suíte de testes automatizados (200+ testes 100% offline)
 pytest -v
 ```
 
@@ -223,4 +282,4 @@ pytest -v
 
 ## Licenças de Terceiros e Licença do Projeto
 
-Distribuído sob a licença **MIT** (veja [`LICENSE`](LICENSE)). Utiliza bibliotecas de código aberto compatíveis (`FastAPI`, `Uvicorn`, `Pydantic`, `lxml`, `openpyxl`, `cryptography`, `requests` e `requests-pkcs12`).
+Distribuído sob a licença **MIT** (veja [`LICENSE`](LICENSE)). Utiliza bibliotecas de código aberto compatíveis (`FastAPI`, `Uvicorn`, `Pydantic`, `lxml`, `openpyxl`, `cryptography`, `requests`, `requests-pkcs12`, `qrcode`, `Jinja2` e `python-multipart`).

@@ -9,7 +9,17 @@ A **100% local, deterministic, zero-mandatory-API-cost** tool for parsing, valid
 
 Your XML files and digital certificate never leave your infrastructure: all processing runs locally in Python (`lxml` hardened against XXE, `Pydantic v2` with exact `Decimal` arithmetic, in-memory `cryptography` PKCS#12, `SQLite`, and `FastAPI`).
 
-![nfe-local Demo](docs/prints/demo.svg)
+### Real screenshots (generated from 100% synthetic data)
+
+| Invoice table (sortable, paginated) | Summary & taxes |
+| :---: | :---: |
+| ![Invoice table](docs/prints/tabela-notas.png) | ![Management dashboard](docs/prints/painel-gerencial.png) |
+| **Inbound from SEFAZ (DistDFe)** | **Official DANFE (NF-e 55)** |
+| ![Inbound from SEFAZ](docs/prints/recebidas-sefaz.png) | ![DANFE](docs/prints/danfe.png) |
+
+![DANFSe v2.0 with QR Code](docs/prints/danfse.png)
+
+> Every screenshot uses the fictitious fixtures in `tests/fixtures/` (made-up companies and CNPJs); no real data appears. The UI itself is in Portuguese.
 
 ---
 
@@ -22,11 +32,12 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | **Alphanumeric CNPJ & Access Key Validator (NT 2014.002 v1.40)** | ✅ Ready | Unit tests for Modulo 11 check digits via `ord(c) - 48` on 44-char keys and CNPJs containing letters (`12.ABC.345/01DE-35`). |
 | **Financial Reconciliation ($\sum \text{items} == \text{vProd}$ & $\text{vNF}$ equation)** | ✅ Ready | Tested with balanced invoices and purposefully mismatched item/total fixtures using exact `Decimal` math. |
 | **Streaming Batch Aggregator & CSV / 4-Sheet XLSX Export** | ✅ Ready | Real benchmark with **1,000 XMLs** (`0.63 MB` peak RAM in streaming) + protection against *CSV/Excel Formula Injection* and 44/50-char key preservation as text (`@`). |
-| **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe)** | ✅ Ready | Integration tests via `TestClient` covering pure-SVG Code 128-C / 128-B barcodes and homologation watermarks. |
+| **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe v2.0 with QR Code)** | ✅ Ready | Integration tests via `TestClient` covering pure-SVG Code 128-C / 128-B barcodes, a pure-SVG QR Code on the DANFSe, and homologation watermarks. |
 | **FastAPI REST API + Agent-Ready CLI** | ✅ Ready | REST endpoints (`/api/lote`, `/api/recebidas`, `/exportar`) and `nfe-local analisar` / `nfe-local sincronizar-sefaz` CLI commands tested end-to-end. |
-| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with injected HTTP client, sending only aggregated accounting summaries (zero raw XML), disk cache, and hourly quota enforcement. |
-| **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 180+ automated tests. |
+| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with injected HTTP client, never sending raw XML (only aggregates and a summary of up to 30 invoices — see [Optional LLM assistant](#optional-llm-assistant-and-privacy)), with disk cache and hourly quota enforcement. |
+| **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 200+ automated tests. |
 | **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
+| **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready | Archive listing and summary **never read or decompress** the SQLite `xml_gzip` (on-demand read only when opening details, the DANFE/DANFSe mirror or downloading the XML, backed by a key index), paginated tables (`50 / 100 / 250 / All`), sortable headers and official DANFE/DANFSe v2.0 layouts. ZIP extraction limits raised to 50,000 files / 1 GB (still bounded against *zip bombs*). |
 
 ---
 
@@ -42,12 +53,16 @@ Your XML files and digital certificate never leave your infrastructure: all proc
    - **Rule 4 (Batch Duplicates):** flags duplicate access keys within the same batch and prevents double counting in financial summaries.
    - **Rule 5 (Operational Alerts):** highlights invoices issued in **Homologation/Testing (`tpAmb=2`)** or missing an **Authorization Protocol (`protNFe`)**.
 3. **Printable A4 Mirrors (DANFE & DANFSe NT 008/2026):**
-   - **DANFE (NF-e/NFC-e):** portrait A4 layout with detachable receipt stub, zero-dependency **pure-SVG Code 128 barcode** (automatically switching between numeric Subset C and alphanumeric Subset B), installments, tax breakdown, and line items.
-   - **DANFSe (National NFS-e):** faithful to **NT 008/2026**, displaying the 50-digit key, Provider, Customer, Service (`cTribNac`/`cNBS`), ISSQN, Federal Withholdings, and Tax Reform (`IBS/CBS`).
-4. **Executive Batch Summary & Accounting Export (CSV & XLSX):**
+   - **DANFE (NF-e/NFC-e) — official layout:** portrait A4 with the 9 official blocks (receipt stub, triple header with `0 - ENTRADA / 1 - SAÍDA`, protocol, recipient, installments, tax calculation, carrier/volumes, 14-column item table and additional data) and a zero-dependency **pure-SVG Code 128 barcode** (switching between numeric Subset C and alphanumeric Subset B).
+   - **DANFSe v2.0 (National NFS-e) — NT 008/2026:** 50-digit key, Provider, Customer, Service (`cTribNac`/`cNBS`), ISSQN, Federal Withholdings, Tax Reform (`IBS/CBS`), Law 12.741/2012 and a **pure-SVG QR Code** (26 mm × 26 mm) pointing to the national NFS-e public lookup.
+4. **Fast Tables for Large Archives (15,000+ invoices):**
+   - **On-demand SQLite reads:** archive listing and summary never read or decompress the raw XML; it is only loaded, one invoice at a time, when opening *Detalhes*, the DANFE/DANFSe mirror, or downloading the XML.
+   - **Pagination:** the table renders only the active page (`50 / 100 / 250 / All`, default `100`); filtering and sorting still apply to the full set and reset to page 1.
+   - **Clickable sorting:** headers sort numerically, chronologically or alphabetically (`⇅` / `▲` / `▼`) on Tabs 1 and 2.
+5. **Executive Batch Summary & Accounting Export (CSV & XLSX):**
    - Aggregates totals by **Issuer/Provider**, by **Tax** (`ICMS`, `ICMS-ST`, `IPI`, `PIS`, `COFINS`, `ISS`, `Withholdings`, `IBS/CBS`), and by **Period** (`YYYY-MM`).
    - Exports UTF-8 with BOM CSVs and a **4-sheet XLSX workbook** (`Notas`, `Itens`, `Resumo`, `Alertas`).
-5. **Inbound SEFAZ Invoice Synchronization (`NFeDistribuicaoDFe` — Phase 2):**
+6. **Inbound SEFAZ Invoice Synchronization (`NFeDistribuicaoDFe` — Phase 2):**
    - Performs SOAP 1.2 queries with in-memory mTLS using an ICP-Brasil A1 certificate (`.pfx`), decompresses `<docZip>` payloads (`base64 + gzip`), persists records in local SQLite, and provides the **"🏛️ Recebidas da SEFAZ (DistDFe)"** tab filterable by issuer, date range, amount, category, and status.
 
 ---
@@ -97,6 +112,34 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 
 ---
 
+## Environment Variables
+
+All are optional. **The program does not read the `.env` file by itself**: `.env.example` is only a template. Set the variables in your terminal (`$env:NAME="value"` in PowerShell), in the Windows environment, or with `docker run --env-file .env` / `-e`.
+
+| Variable | Purpose | Default |
+| :--- | :--- | :--- |
+| `NFE_CERT_PATH` / `NFE_CERT_SENHA` | Path and password of the A1 certificate (`.pfx`) for headless/CLI use. A certificate registered in the web UI takes priority. | — |
+| `NFE_CERT_DIR` | Folder of the certificate registered through the UI. | `data/certificado` |
+| `NFE_AMBIENTE` | `homologacao` (2) or `producao` (1). | `homologacao` |
+| `NFE_UF_AUTOR` | IBGE code of the author's state (`cUFAutor`). | `35` |
+| `NFE_CNPJ_CONSULTA` | CNPJ/CPF queried in `NFeDistribuicaoDFe`. **If empty, the A1 certificate's CNPJ is used.** Useful when the certificate belongs to an accountant/head office and the query is for another company. A document passed explicitly to the call takes priority over this variable. | Certificate CNPJ |
+| `NFE_DB_PATH` | Local SQLite file (batches, inbound invoices, NSU cursor). | `data/nfe_recebidas.db` |
+| `LLM_API_KEY` | Enables the Analytical Assistant. **Empty = assistant off** and nothing leaves the computer. | — |
+| `LLM_BASE_URL` | OpenAI-compatible endpoint (`/chat/completions`): OpenAI, Gemini (compat mode), Groq, local Ollama, etc. | `https://api.openai.com/v1` |
+| `LLM_MODEL` | Model name. | `gpt-4o-mini` |
+| `LLM_MAX_CHAMADAS_HORA` | Hourly quota of provider calls (questions answered from the cache do not count). | `20` |
+
+### Optional LLM assistant and privacy
+
+With `LLM_API_KEY` empty, **nothing** is sent over the internet. With the assistant on, each question sends the provider configured in `LLM_BASE_URL` a locally built JSON (`reports/assistente_lote.py`, function `montar_contexto_lote_llm`) containing:
+
+- **batch aggregates:** counts, financial totals, tax totals, and totals per issuer (legal name and CNPJ) and per month;
+- **a sample of up to 30 invoices** (problematic ones first): file name, type, number, issuer (legal name and CNPJ), total value, validity and alerts.
+
+**Never** sent: raw XML, line items, access keys, recipients/customers, the certificate or its password. Still, issuer legal names, CNPJs and file names **do leave your computer** while the assistant is on; if that is not acceptable, leave `LLM_API_KEY` empty or point `LLM_BASE_URL` at a local model (e.g. Ollama at `http://127.0.0.1:11434/v1`).
+
+---
+
 ## Measured Speed & Memory (1,000-XML Benchmark)
 
 Real measurement executed via [`scripts/benchmark_lote.py`](scripts/benchmark_lote.py) on **Windows 11 (Python 3.12.10, Intel64)** across a mixed batch of **1,000 synthetic XMLs** (250 numeric NF-e 55, 250 NFC-e 65, 250 alphanumeric-CNPJ NF-e 55, and 250 National NFS-e):
@@ -115,12 +158,16 @@ Full methodology and reproduction instructions are available in [`docs/benchmark
 ### Option 1: One-Click Windows Installer (Recommended)
 
 1. Double-click **`instalar.bat`**.
-   - Checks for Python 3.12, creates an isolated virtual environment outside OneDrive (`%USERPROFILE%\venvs\nfe-local`), installs dependencies, and creates a **"Visualizador NF-e Local"** shortcut on your Desktop.
+   - The script looks for **Python 3.12 only** (`py -3.12` or the default 3.12 install path). If it only finds another version (e.g. 3.13), it tells you which one it found and that it needs 3.12; having other Pythons installed does no harm.
+   - If 3.12 is missing and Windows has `winget`, the script **asks `S/N` (yes/no)** before installing Python 3.12, then locates `python.exe` by its full path (no Windows restart needed). Without `winget`, it opens the Python 3.12.x download page.
+   - It then creates an isolated virtual environment outside OneDrive (`%USERPROFILE%\venvs\nfe-local`), installs dependencies, runs `pip install -e .` (registers the `nfe-local` command in that environment's `Scripts` folder), and creates a **"Visualizador NF-e Local"** shortcut on your Desktop. Everything is logged to `instalar.log`.
 2. Double-click the Desktop shortcut or **`iniciar.bat`**.
    - Your browser will open `http://127.0.0.1:8765`.
    - Use **"Carregar Lote de Demonstração"** on the Batch Analyzer tab, or switch to **"🏛️ Recebidas da SEFAZ (DistDFe)"** and click **"🧪 Carregar Recebidas de Demonstração"** to test the inbound filters without a real A1 certificate.
 
 ### Option 2: Command-Line Interface (CLI)
+
+Prerequisite: run `instalar.bat` first (it registers the `nfe-local` command). Activate the environment with `%USERPROFILE%\venvs\nfe-local\Scripts\Activate.ps1` or call `%USERPROFILE%\venvs\nfe-local\Scripts\nfe-local.exe` directly. Without installing the package, use `python -m api.cli` in place of `nfe-local`.
 
 ```powershell
 # Print batch summary in terminal and export a 4-sheet XLSX report from a folder
@@ -137,6 +184,10 @@ nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
 
 # Start the local web server manually
 nfe-local servidor --host 127.0.0.1 --port 8765
+
+# Wipe the local SQLite database (batches, inbound invoices, NSU cursors and logs) and compact the file.
+# Warning: runs immediately, without asking for confirmation.
+nfe-local resetar-banco [--db data/nfe_recebidas.db] [--json]
 ```
 
 ### Option 3: Manual Python Setup
@@ -145,6 +196,7 @@ nfe-local servidor --host 127.0.0.1 --port 8765
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+pip install -e .          # registers the nfe-local command (optional)
 uvicorn api.app:app --host 127.0.0.1 --port 8765
 ```
 
@@ -205,6 +257,13 @@ This project was built incrementally (one task at a time from [`docs/BACKLOG.md`
 | **13. A1 Certificate & SOAP 1.2** | In-memory PKCS#12 reader and `NFeDistribuicaoDFe` SOAP 1.2 client. | Raw `OtherName` bytes for ICP-Brasil OID `2.16.76.1.3.3` include the ASN.1 DER header (`tag + length`), which in a 14-byte `UTF8String` (`0x0c 0x0e`) leaks into alphanumeric cleaning if stripped by regex alone. | Decoded the ASN.1 DER header prior to document sanitization and used `Pkcs12Adapter` for in-RAM mTLS without writing `.pem` files to disk. |
 | **14–15. NSU Control & `docZip`** | `138`/`137`/`656` state machine and `<docZip>` decompressor. | Firing an extra query after reaching `ultNSU == maxNSU` on `cStat 138` triggers SEFAZ `cStat 656` (Improper Consumption). | Stopped the pagination loop immediately when `ultNSU >= maxNSU`, synced the `ultNSU` returned inside `656` rejections, and capped GZIP reads at `10 MB` against *gzip bombs*. |
 | **16–18. SQLite, Inbound UI & E2E Tests** | SQLite persistence, filterable Web tab, and simulated E2E suite (`138`, `137`, `656`). | A delayed `resNFe` summary could overwrite an existing full `procNFe`, or repeated UI clicks could reset SEFAZ's 1-hour lock timer. | Enforced anti-downgrade rules (`NFE_COMPLETA` is never overwritten by `RESUMO_NFE`), automatic cancellation updates (`110111`/`110112`), local HTTP `429` blocking during `656` windows, and 100% offline E2E verification. |
+| **19. Certificate Documentation** | Document safe `.pfx` handling and how `NFeDistribuicaoDFe` works. | Typical risk: copying the `.pfx` with `COPY` in the `Dockerfile` or committing a `.env` with a password, leaking the certificate into the image or Git. | Documented the `.pfx` as a runtime `:ro` volume, hardened `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) and kept secrets in environment variables only. |
+| **20. History & Unified Archive** | Persist uploaded batches in SQLite and consolidate all invoices into one archive. | Summing every batch directly would double-count the same key uploaded twice, inflating financial totals. | The archive summary goes through `gerar_resumo_lote`, which ignores repeated keys in the totals, and the `/api/lote/*` endpoints stay compatible. |
+| **21. Visual A1 Certificate Registration** | Upload `.pfx` + password through the web UI and store it locally. | Using the uploaded file name would open *path traversal*, and saving before validating would leave an invalid file on disk. | The `.pfx + password` pair is validated in memory before writing, and the file is always saved under a fixed name (`data/certificado/certificado.pfx`) in a Git-ignored folder. |
+| **22. UI Redesign** | "Whole archive" vs. single-batch scope, compact import and sub-views (table, dashboard, assistant). | Browser-only state would make `F5` wipe everything, and the upload area would take half the screen. | The page reloads the archive from SQLite on open; the upload becomes a compact bar with global drag-and-drop. |
+| **23. Polish & Database Reset** | Table without horizontal scroll, `resetar-banco` and `.gitignore` hardening. | A fiscal file or generated spreadsheet in the project folder could be committed by accident to a public repo. | `.gitignore` blocks `*.xml`/`*.zip`/`*.csv`/`*.xlsx` outside `tests/fixtures/`; reset exists in the API, CLI and UI (the CLI does not ask for confirmation). |
+| **24. Sorting & Official Layouts** | Clickable sorting and DANFE/DANFSe faithful to the official layout. | Rendering the mirror only from the normalized model loses fields that do not fit `DocumentoFiscal` (carrier, ANTT code, DPS, official domains). | Mirror routes pass the raw `xml_bytes` to the renderer, with a fallback to `DocumentoFiscal`; sorting distinguishes numbers, dates and text. |
+| **25. QR Code, Lazy Load & Pagination** | QR Code on the DANFSe v2.0 and scale to 15,000+ invoices. | Listing the archive by decompressing every invoice's `xml_gzip` blows memory/time, and rendering thousands of rows freezes the browser. | `obter_acervo_unificado(incluir_xmls_brutos=False)` never touches the XML; `idx_lotes_itens_chave` index + per-invoice reads; DOM holds only the active page; pure-SVG QR Code (`qrcode`, no Pillow). |
 
 ---
 
@@ -220,4 +279,4 @@ pytest -v
 
 ## Third-Party Licenses & Project License
 
-Released under the **MIT License** (see [`LICENSE`](LICENSE)). Built on open-source libraries (`FastAPI`, `Uvicorn`, `Pydantic`, `lxml`, `openpyxl`, `cryptography`, `requests`, and `requests-pkcs12`).
+Released under the **MIT License** (see [`LICENSE`](LICENSE)). Built on open-source libraries (`FastAPI`, `Uvicorn`, `Pydantic`, `lxml`, `openpyxl`, `cryptography`, `requests`, `requests-pkcs12`, `qrcode`, `Jinja2`, and `python-multipart`).
