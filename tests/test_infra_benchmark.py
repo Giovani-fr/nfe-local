@@ -128,10 +128,8 @@ class TestInfraestruturaEDocumentacao:
             assert ("Somente upload" in txt) or ("Upload only" in txt)
             # sincronização completa confirmada em uso real, com a ressalva do intermediário
             assert "411" in txt and "391" in txt
-            # a NF-e pela SEFAZ NÃO foi confirmada em uso real: o texto precisa dizer isso
-            assert ("ainda não foi confirmada em uma nova busca real" in txt) or (
-                "not yet confirmed by a new real fetch" in txt
-            )
+            # a NF-e pela SEFAZ foi validada em uso real (145 NF-e, 9 páginas)
+            assert "145" in txt
             assert ("não confirma" in txt) or ("does not confirm" in txt)
             assert "Notas Emitidas Contra o CNPJ" not in txt
 

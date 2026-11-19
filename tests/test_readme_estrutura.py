@@ -103,3 +103,21 @@ def test_textos_sem_email_caminho_pessoal_nem_cnpj_real():
         assert "giova" not in sem_repo.lower(), f"{arq.name}: nome de usuário"
         for doc in re.findall(r"(?<!\d)\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}(?!\d)", txt):
             assert re.sub(r"\D", "", doc) in permitidos, f"{arq.name}: CNPJ fora da lista sintética"
+
+
+@pytest.mark.parametrize("nome", ["README.md", "README.en.md"])
+def test_nfe_sefaz_validada_em_uso_real_e_sem_frases_antigas(nome):
+    txt = (RAIZ / nome).read_text(encoding="utf-8")
+    for fato in ("145", "143", "9 pág" if nome == "README.md" else "9 pages"):
+        assert fato in txt, fato
+    assert ("Validado em uso real" in txt) or ("Validated in real use" in txt)
+    assert ("upload dos XMLs" in txt) or ("XML upload" in txt)
+    for antiga in (
+        "ainda não foi confirmada em uma nova busca real",
+        "not yet confirmed by a new real fetch",
+        "correção sem nova confirmação real",
+        "fix not yet confirmed",
+        "a busca de NF-e pela SEFAZ ainda **não** foi confirmada",
+        "is **not** confirmed in real use yet",
+    ):
+        assert antiga not in txt, antiga
