@@ -65,12 +65,21 @@ class TestInfraestruturaEDocumentacao:
         readme_pt = RAIZ_PROJETO / "README.md"
         readme_en = RAIZ_PROJETO / "README.en.md"
         benchmark_md = RAIZ_PROJETO / "docs" / "benchmark.md"
-        demo_svg = RAIZ_PROJETO / "docs" / "prints" / "demo.svg"
+        prints = [
+            RAIZ_PROJETO / "docs" / "prints" / nome
+            for nome in (
+                "tabela-notas.png",
+                "painel-gerencial.png",
+                "recebidas-sefaz.png",
+                "danfe.png",
+                "danfse.png",
+            )
+        ]
 
         assert readme_pt.is_file()
         assert readme_en.is_file()
         assert benchmark_md.is_file()
-        assert demo_svg.is_file()
+        assert all(p.is_file() for p in prints)
 
         txt_pt = readme_pt.read_text(encoding="utf-8")
         assert "Como usei IA" in txt_pt
