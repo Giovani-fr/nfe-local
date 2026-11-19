@@ -34,7 +34,7 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | **Streaming Batch Aggregator & CSV / 4-Sheet XLSX Export** | ✅ Ready | Real benchmark with **1,000 XMLs** (`0.63 MB` peak RAM in streaming) + protection against *CSV/Excel Formula Injection* and 44/50-char key preservation as text (`@`). |
 | **Dark Mode Web UI + Printable A4 Mirrors (DANFE Code 128 & DANFSe v2.0 with QR Code)** | ✅ Ready | Integration tests via `TestClient` covering pure-SVG Code 128-C / 128-B barcodes, a pure-SVG QR Code on the DANFSe, and homologation watermarks. |
 | **FastAPI REST API + Agent-Ready CLI** | ✅ Ready | REST endpoints (`/api/lote`, `/api/recebidas`, `/exportar`) and `nfe-local analisar` / `nfe-local sincronizar-sefaz` CLI commands tested end-to-end. |
-| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with injected HTTP client, never sending raw XML (only aggregates and a summary of up to 30 invoices — see [Optional LLM assistant](#optional-llm-assistant-and-privacy)), with disk cache and hourly quota enforcement. |
+| **Optional Analytical Assistant (LLM with SHA-256 Cache & Rate-Limit)** | ✅ Ready | Verified 100% offline with an injected HTTP client. **By default it sends only anonymized accounting aggregates** (issuers as "Emitente 01", no legal names, CNPJs or invoice sample); `LLM_ENVIAR_IDENTIFICADORES=1` and `LLM_ENVIAR_AMOSTRA=1` enable, respectively, real names/CNPJs and the sample of up to 30 invoices. Tests prove that, in the default mode, no identifier appears in what would be sent. Disk cache and hourly quota. See [Optional LLM assistant](#optional-llm-assistant-and-privacy). |
 | **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 200+ automated tests. |
 | **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
 | **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready | Archive listing and summary **never read or decompress** the SQLite `xml_gzip` (on-demand read only when opening details, the DANFE/DANFSe mirror or downloading the XML, backed by a key index), paginated tables (`50 / 100 / 250 / All`), sortable headers and official DANFE/DANFSe v2.0 layouts. ZIP extraction limits raised to 50,000 files / 1 GB (still bounded against *zip bombs*). |
@@ -128,15 +128,27 @@ All are optional. **The program does not read the `.env` file by itself**: `.env
 | `LLM_BASE_URL` | OpenAI-compatible endpoint (`/chat/completions`): OpenAI, Gemini (compat mode), Groq, local Ollama, etc. | `https://api.openai.com/v1` |
 | `LLM_MODEL` | Model name. | `gpt-4o-mini` |
 | `LLM_MAX_CHAMADAS_HORA` | Hourly quota of provider calls (questions answered from the cache do not count). | `20` |
+| `LLM_ENVIAR_IDENTIFICADORES` | `1` sends issuers' real legal names and CNPJs to the provider. Off = issuers become codes ("Emitente 01"...). | `0` |
+| `LLM_ENVIAR_AMOSTRA` | `1` also sends a sample of up to 30 invoices (problematic ones first). | `0` |
 
 ### Optional LLM assistant and privacy
 
-With `LLM_API_KEY` empty, **nothing** is sent over the internet. With the assistant on, each question sends the provider configured in `LLM_BASE_URL` a locally built JSON (`reports/assistente_lote.py`, function `montar_contexto_lote_llm`) containing:
+With `LLM_API_KEY` empty, **nothing** is sent over the internet. With the assistant on, **the default mode is private**: each question sends the provider configured in `LLM_BASE_URL` only **anonymized accounting aggregates** (counts, financial totals, tax totals, and totals per issuer and per month).
 
-- **batch aggregates:** counts, financial totals, tax totals, and totals per issuer (legal name and CNPJ) and per month;
-- **a sample of up to 30 invoices** (problematic ones first): file name, type, number, issuer (legal name and CNPJ), total value, validity and alerts.
+- **Issuers become stable codes within the batch** (`Emitente 01`, `Emitente 02`...), numbered by CNPJ/CPF order, so the same issuer keeps its code even if the upload order changes. **Legal names and CNPJs are not sent.**
+- **The invoice sample is not sent.** The model can answer about totals and taxes, but cannot tell *which invoices* have alerts.
+- **Names and CNPJs typed in your question** are replaced by the codes before sending (and the cache uses the already-anonymized question).
+- **The translation stays on your computer:** the model answers with codes and the UI shows, right below the answer, the *code → legal name / CNPJ* table, built locally and never sent.
+- **Never** sent, in any mode: raw XML, line items, access keys, recipients/customers, the certificate or its password.
 
-**Never** sent: raw XML, line items, access keys, recipients/customers, the certificate or its password. Still, issuer legal names, CNPJs and file names **do leave your computer** while the assistant is on; if that is not acceptable, leave `LLM_API_KEY` empty or point `LLM_BASE_URL` at a local model (e.g. Ollama at `http://127.0.0.1:11434/v1`).
+Two options, **both off by default**, widen what leaves the computer:
+
+| Option | What is additionally sent |
+| :--- | :--- |
+| `LLM_ENVIAR_IDENTIFICADORES=1` | Issuers' real legal names and CNPJs (in the summary and in the sample, if enabled). Also sends file names and full alert messages from the sample. |
+| `LLM_ENVIAR_AMOSTRA=1` | Sample of up to 30 invoices: type, number, total value, validity and alert codes, with the issuer as a code and `Nota 001`, `Nota 002`... instead of the file name (alert messages omitted). With both options on, the full sample goes out with real names. |
+
+Anonymized does not mean impossible to re-identify: the issuer's state and per-issuer values remain in the aggregates, and someone who knows the batch may work out who is who. If that matters, leave `LLM_API_KEY` empty or point `LLM_BASE_URL` at a local model (e.g. Ollama at `http://127.0.0.1:11434/v1`).
 
 ---
 
@@ -186,8 +198,9 @@ nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
 nfe-local servidor --host 127.0.0.1 --port 8765
 
 # Wipe the local SQLite database (batches, inbound invoices, NSU cursors and logs) and compact the file.
-# Warning: runs immediately, without asking for confirmation.
-nfe-local resetar-banco [--db data/nfe_recebidas.db] [--json]
+# Asks for confirmation: type APAGAR (or y). Any other answer cancels without deleting anything.
+# Use --sim to skip the prompt (scripts/automation).
+nfe-local resetar-banco [--db data/nfe_recebidas.db] [--sim] [--json]
 ```
 
 ### Option 3: Manual Python Setup
@@ -257,13 +270,20 @@ This project was built incrementally (one task at a time from [`docs/BACKLOG.md`
 | **13. A1 Certificate & SOAP 1.2** | In-memory PKCS#12 reader and `NFeDistribuicaoDFe` SOAP 1.2 client. | Raw `OtherName` bytes for ICP-Brasil OID `2.16.76.1.3.3` include the ASN.1 DER header (`tag + length`), which in a 14-byte `UTF8String` (`0x0c 0x0e`) leaks into alphanumeric cleaning if stripped by regex alone. | Decoded the ASN.1 DER header prior to document sanitization and used `Pkcs12Adapter` for in-RAM mTLS without writing `.pem` files to disk. |
 | **14–15. NSU Control & `docZip`** | `138`/`137`/`656` state machine and `<docZip>` decompressor. | Firing an extra query after reaching `ultNSU == maxNSU` on `cStat 138` triggers SEFAZ `cStat 656` (Improper Consumption). | Stopped the pagination loop immediately when `ultNSU >= maxNSU`, synced the `ultNSU` returned inside `656` rejections, and capped GZIP reads at `10 MB` against *gzip bombs*. |
 | **16–18. SQLite, Inbound UI & E2E Tests** | SQLite persistence, filterable Web tab, and simulated E2E suite (`138`, `137`, `656`). | A delayed `resNFe` summary could overwrite an existing full `procNFe`, or repeated UI clicks could reset SEFAZ's 1-hour lock timer. | Enforced anti-downgrade rules (`NFE_COMPLETA` is never overwritten by `RESUMO_NFE`), automatic cancellation updates (`110111`/`110112`), local HTTP `429` blocking during `656` windows, and 100% offline E2E verification. |
-| **19. Certificate Documentation** | Document safe `.pfx` handling and how `NFeDistribuicaoDFe` works. | Typical risk: copying the `.pfx` with `COPY` in the `Dockerfile` or committing a `.env` with a password, leaking the certificate into the image or Git. | Documented the `.pfx` as a runtime `:ro` volume, hardened `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) and kept secrets in environment variables only. |
-| **20. History & Unified Archive** | Persist uploaded batches in SQLite and consolidate all invoices into one archive. | Summing every batch directly would double-count the same key uploaded twice, inflating financial totals. | The archive summary goes through `gerar_resumo_lote`, which ignores repeated keys in the totals, and the `/api/lote/*` endpoints stay compatible. |
-| **21. Visual A1 Certificate Registration** | Upload `.pfx` + password through the web UI and store it locally. | Using the uploaded file name would open *path traversal*, and saving before validating would leave an invalid file on disk. | The `.pfx + password` pair is validated in memory before writing, and the file is always saved under a fixed name (`data/certificado/certificado.pfx`) in a Git-ignored folder. |
-| **22. UI Redesign** | "Whole archive" vs. single-batch scope, compact import and sub-views (table, dashboard, assistant). | Browser-only state would make `F5` wipe everything, and the upload area would take half the screen. | The page reloads the archive from SQLite on open; the upload becomes a compact bar with global drag-and-drop. |
-| **23. Polish & Database Reset** | Table without horizontal scroll, `resetar-banco` and `.gitignore` hardening. | A fiscal file or generated spreadsheet in the project folder could be committed by accident to a public repo. | `.gitignore` blocks `*.xml`/`*.zip`/`*.csv`/`*.xlsx` outside `tests/fixtures/`; reset exists in the API, CLI and UI (the CLI does not ask for confirmation). |
-| **24. Sorting & Official Layouts** | Clickable sorting and DANFE/DANFSe faithful to the official layout. | Rendering the mirror only from the normalized model loses fields that do not fit `DocumentoFiscal` (carrier, ANTT code, DPS, official domains). | Mirror routes pass the raw `xml_bytes` to the renderer, with a fallback to `DocumentoFiscal`; sorting distinguishes numbers, dates and text. |
-| **25. QR Code, Lazy Load & Pagination** | QR Code on the DANFSe v2.0 and scale to 15,000+ invoices. | Listing the archive by decompressing every invoice's `xml_gzip` blows memory/time, and rendering thousands of rows freezes the browser. | `obter_acervo_unificado(incluir_xmls_brutos=False)` never touches the XML; `idx_lotes_itens_chave` index + per-invoice reads; DOM holds only the active page; pure-SVG QR Code (`qrcode`, no Pillow). |
+
+### Design decisions and risks considered (tasks 19 to 25)
+
+For tasks 19 to 25 there was **no** concrete failure caught in review: the table above, covering tasks 1 to 18, is the one that records problems identified in review. Here are the **design decisions and risks anticipated** in planning (`docs/BACKLOG.md`) and what was done about each; they are risks considered up front, not bugs found afterwards.
+
+| Decision | Risk considered | How it was handled |
+| :--- | :--- | :--- |
+| **19. Certificate Documentation** — Document safe `.pfx` handling and how `NFeDistribuicaoDFe` works. | Typical risk: copying the `.pfx` with `COPY` in the `Dockerfile` or committing a `.env` with a password, leaking the certificate into the image or Git. | Documented the `.pfx` as a runtime `:ro` volume, hardened `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) and kept secrets in environment variables only. |
+| **20. History & Unified Archive** — Persist uploaded batches in SQLite and consolidate all invoices into one archive. | Summing every batch directly would double-count the same key uploaded twice, inflating financial totals. | The archive summary goes through `gerar_resumo_lote`, which ignores repeated keys in the totals, and the `/api/lote/*` endpoints stay compatible. |
+| **21. Visual A1 Certificate Registration** — Upload `.pfx` + password through the web UI and store it locally. | Using the uploaded file name would open *path traversal*, and saving before validating would leave an invalid file on disk. | The `.pfx + password` pair is validated in memory before writing, and the file is always saved under a fixed name (`data/certificado/certificado.pfx`) in a Git-ignored folder. |
+| **22. UI Redesign** — "Whole archive" vs. single-batch scope, compact import and sub-views (table, dashboard, assistant). | Browser-only state would make `F5` wipe everything, and the upload area would take half the screen. | The page reloads the archive from SQLite on open; the upload becomes a compact bar with global drag-and-drop. |
+| **23. Polish & Database Reset** — Table without horizontal scroll, `resetar-banco` and `.gitignore` hardening. | A fiscal file or generated spreadsheet in the project folder could be committed by accident to a public repo. | `.gitignore` blocks `*.xml`/`*.zip`/`*.csv`/`*.xlsx` outside `tests/fixtures/`; reset exists in the API, CLI and UI (the CLI does not ask for confirmation). |
+| **24. Sorting & Official Layouts** — Clickable sorting and DANFE/DANFSe faithful to the official layout. | Rendering the mirror only from the normalized model loses fields that do not fit `DocumentoFiscal` (carrier, ANTT code, DPS, official domains). | Mirror routes pass the raw `xml_bytes` to the renderer, with a fallback to `DocumentoFiscal`; sorting distinguishes numbers, dates and text. |
+| **25. QR Code, Lazy Load & Pagination** — QR Code on the DANFSe v2.0 and scale to 15,000+ invoices. | Listing the archive by decompressing every invoice's `xml_gzip` blows memory/time, and rendering thousands of rows freezes the browser. | `obter_acervo_unificado(incluir_xmls_brutos=False)` never touches the XML; `idx_lotes_itens_chave` index + per-invoice reads; DOM holds only the active page; pure-SVG QR Code (`qrcode`, no Pillow). |
 
 ---
 

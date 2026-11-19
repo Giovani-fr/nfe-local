@@ -34,7 +34,7 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | **Agregador de Lote em Streaming e Exportação CSV / XLSX (4 Abas)** | ✅ Pronto | Benchmark real com **1.000 XMLs** (`0,63 MB` de pico em streaming) + blindagem contra *CSV/Excel Formula Injection* e preservação de chaves de 44/50 posições como texto (`@`). |
 | **Interface Web Dark Mode + Espelhos A4 (DANFE Code 128 e DANFSe v2.0 com QR Code)** | ✅ Pronto | Testado via `TestClient` com código de barras SVG puro (Code 128-C e 128-B), QR Code SVG puro no DANFSe e marca d'água para homologação. |
 | **API REST FastAPI + CLI Pronta para Automação e Agentes de IA** | ✅ Pronto | Endpoints REST (`/api/lote`, `/api/recebidas`, `/exportar`) e subcomandos `nfe-local analisar` e `nfe-local sincronizar-sefaz` testados de ponta a ponta. |
-| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado, sem nunca enviar XML bruto (só agregados e um resumo de até 30 notas — veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade)), com cache em disco e franquia horária configurável. |
+| **Assistente Analítico Opcional (LLM com Cache SHA-256 e Rate-Limit)** | ✅ Pronto | Testado 100% offline com cliente HTTP injetado. **Por padrão envia só agregados contábeis anonimizados** (emitentes como "Emitente 01", sem razão social, CNPJ nem amostra de notas); `LLM_ENVIAR_IDENTIFICADORES=1` e `LLM_ENVIAR_AMOSTRA=1` liberam, respectivamente, nomes/CNPJ reais e a amostra de até 30 notas. Testes provam que, no modo padrão, nenhum identificador aparece no que seria enviado. Cache em disco e franquia horária. Veja [Assistente LLM opcional](#assistente-llm-opcional-e-privacidade). |
 | **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 200 testes automatizados. |
 | **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
 | **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
@@ -128,15 +128,27 @@ Todas são opcionais. **O programa não lê o arquivo `.env` sozinho**: o `.env.
 | `LLM_BASE_URL` | Endpoint compatível com OpenAI (`/chat/completions`): OpenAI, Gemini (modo compat), Groq, Ollama local etc. | `https://api.openai.com/v1` |
 | `LLM_MODEL` | Nome do modelo. | `gpt-4o-mini` |
 | `LLM_MAX_CHAMADAS_HORA` | Franquia horária de chamadas ao provedor (perguntas respondidas pelo cache não consomem). | `20` |
+| `LLM_ENVIAR_IDENTIFICADORES` | `1` envia razão social e CNPJ reais dos emitentes ao provedor. Desligada = emitentes viram códigos ("Emitente 01"...). | `0` |
+| `LLM_ENVIAR_AMOSTRA` | `1` envia também uma amostra de até 30 notas (as com problemas primeiro). | `0` |
 
 ### Assistente LLM opcional e privacidade
 
-Com `LLM_API_KEY` vazia, **nada** é enviado à internet. Com o assistente ligado, ao fazer uma pergunta o programa envia ao provedor configurado em `LLM_BASE_URL` um JSON montado localmente (`reports/assistente_lote.py`, função `montar_contexto_lote_llm`) com:
+Com `LLM_API_KEY` vazia, **nada** é enviado à internet. Com o assistente ligado, **o modo padrão é privado**: ao fazer uma pergunta, o programa envia ao provedor configurado em `LLM_BASE_URL` apenas **agregados contábeis anonimizados** (contagens, totais financeiros, impostos totais, totais por emitente e por mês).
 
-- **agregados do lote:** contagens, totais financeiros, impostos totais e totais por emitente (razão social e CNPJ) e por mês;
-- **uma amostra de até 30 notas** (as com problemas primeiro): nome do arquivo, tipo, número, emitente (razão social e CNPJ), valor total, validade e alertas.
+- **Emitentes viram códigos estáveis dentro do lote** (`Emitente 01`, `Emitente 02`...), numerados pela ordem do CNPJ/CPF, então o mesmo emitente mantém o mesmo código mesmo que a ordem dos uploads mude. **Razão social e CNPJ não são enviados.**
+- **A amostra de notas não é enviada.** Isso significa que o modelo responde sobre totais e impostos, mas não sabe dizer *quais notas* têm alertas.
+- **Nomes e CNPJs digitados na sua pergunta** são trocados pelos códigos antes do envio (e o cache usa a pergunta já anonimizada).
+- **A tradução fica no seu computador:** o modelo responde com os códigos e a interface mostra, logo abaixo da resposta, a tabela *código → razão social / CNPJ*, montada localmente e nunca enviada.
+- **Nunca** são enviados, em nenhum modo: XML bruto, itens, chaves de acesso, destinatários/tomadores, certificado ou senha.
 
-**Nunca** são enviados: o XML bruto, itens, chaves de acesso, destinatários/tomadores, certificado ou senha. Mesmo assim, razão social e CNPJ de emitentes e nomes de arquivo **saem do computador** quando o assistente está ligado; se isso não for aceitável, deixe `LLM_API_KEY` vazia ou aponte `LLM_BASE_URL` para um modelo local (ex.: Ollama em `http://127.0.0.1:11434/v1`).
+Duas opções, **ambas desligadas por padrão**, ampliam o que sai do computador:
+
+| Opção | O que passa a ser enviado |
+| :--- | :--- |
+| `LLM_ENVIAR_IDENTIFICADORES=1` | Razão social e CNPJ reais dos emitentes (no resumo e na amostra, se ligada). Também envia nomes de arquivo e mensagens completas dos alertas da amostra. |
+| `LLM_ENVIAR_AMOSTRA=1` | Amostra de até 30 notas: tipo, número, valor total, validade e códigos de alerta, com emitente por código e `Nota 001`, `Nota 002`... no lugar do nome do arquivo (mensagens de alerta omitidas). Com as duas opções ligadas, sai a amostra completa com nomes reais. |
+
+Anonimizado não significa impossível de reidentificar: a UF do emitente e os valores por emitente continuam nos agregados, e quem conhece o lote pode deduzir quem é quem. Se isso for um problema, deixe `LLM_API_KEY` vazia ou aponte `LLM_BASE_URL` para um modelo local (ex.: Ollama em `http://127.0.0.1:11434/v1`).
 
 ---
 
@@ -186,8 +198,9 @@ nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
 nfe-local servidor --host 127.0.0.1 --port 8765
 
 # Zerar o banco SQLite local (lotes, notas recebidas, cursores NSU e logs) e compactar o arquivo.
-# Atenção: executa imediatamente, sem pedir confirmação.
-nfe-local resetar-banco [--db data/nfe_recebidas.db] [--json]
+# Pede confirmação: digite APAGAR (ou y). Qualquer outra resposta cancela sem apagar nada.
+# Use --sim para pular a pergunta (scripts/automação).
+nfe-local resetar-banco [--db data/nfe_recebidas.db] [--sim] [--json]
 ```
 
 ### Opção 3: Instalação Manual via Python
@@ -257,13 +270,20 @@ O projeto foi desenvolvido de forma incremental (uma tarefa por vez do [`docs/BA
 | **13. Certificado A1 e SOAP 1.2** | Leitor PKCS#12 em memória e cliente SOAP 1.2 `NFeDistribuicaoDFe`. | O valor bruto `OtherName` do OID ICP-Brasil `2.16.76.1.3.3` inclui cabeçalho ASN.1 DER (`tag + length`), que em `UTF8String` de 14 bytes (`0x0c 0x0e`) vira caracter alfanumérico se limpo apenas por regex. | Decodifiquei o cabeçalho ASN.1 DER antes de limpar o documento e usei `Pkcs12Adapter` para negociar mTLS em memória sem gravar `.pem` em disco. |
 | **14–15. Controle de NSU e `docZip`** | Máquina de estados `138`/`137`/`656` e descompactador `<docZip>`. | Fazer uma nova consulta após atingir `ultNSU == maxNSU` no `cStat 138` dispara rejeição `656` (Consumo Indevido) na SEFAZ. | O loop encerra imediatamente quando `ultNSU >= maxNSU`, sincroniza o `ultNSU` devolvido na própria rejeição `656` e limita a leitura GZIP em `10 MB` contra *gzip bomb*. |
 | **16–18. SQLite, Tela Recebidas e Testes E2E** | Persistência SQLite, aba Web filtrável e suíte E2E simulada (`138`, `137`, `656`). | Um `resNFe` atrasado poderia sobrescrever um `procNFe` completo já salvo, ou cliques repetidos na UI poderiam reiniciar o bloqueio de 1h da SEFAZ. | Adicionei proteção contra downgrade (`NFE_COMPLETA` nunca volta a `RESUMO_NFE`), reflexo automático de cancelamento (`110111`/`110112`), bloqueio HTTP `429` local durante a janela do `656` e validação E2E 100% offline. |
-| **19. Documentação do Certificado** | Documentar o manuseio seguro do `.pfx` e o funcionamento do `NFeDistribuicaoDFe`. | Risco típico: copiar o `.pfx` com `COPY` no `Dockerfile` ou versionar um `.env` com senha, o que vazaria o certificado na imagem ou no Git. | Documentei o `.pfx` como volume `:ro` em tempo de execução, reforcei `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) e deixei segredos só em variáveis de ambiente. |
-| **20. Histórico e Acervo Unificado** | Persistir lotes enviados no SQLite e consolidar todas as notas em um acervo. | Somar todos os lotes direto contaria em dobro a mesma chave carregada em dois uploads, inflando os totais financeiros. | O resumo do acervo passa por `gerar_resumo_lote`, que ignora chaves repetidas nos totais, e os endpoints `/api/lote/*` continuam compatíveis. |
-| **21. Cadastro Visual do Certificado A1** | Enviar `.pfx` + senha pela interface web e guardar no computador. | Usar o nome do arquivo enviado abriria *path traversal*, e salvar antes de validar deixaria arquivo inválido no disco. | Valido o par `.pfx + senha` em memória antes de gravar e salvo sempre com nome fixo (`data/certificado/certificado.pfx`), em pasta ignorada pelo Git. |
-| **22. Redesign da Interface** | Escopo "Todo o acervo" vs. lote, importação compacta e sub-visões (tabela, painel, assistente). | Estado só no navegador faria o `F5` apagar tudo e o upload ocuparia metade da tela. | A página recarrega o acervo do SQLite ao abrir; o upload vira barra compacta com *drag-and-drop* global. |
-| **23. Polimento e Reset do Banco** | Tabela sem rolagem horizontal, `resetar-banco` e blindagem do `.gitignore`. | Um arquivo fiscal ou planilha gerada na pasta do projeto poderia ser versionado por acidente em repositório público. | `.gitignore` bloqueia `*.xml`/`*.zip`/`*.csv`/`*.xlsx` fora de `tests/fixtures/`; o reset existe na API, na CLI e na interface (a CLI não pede confirmação). |
-| **24. Ordenação e Layouts Oficiais** | Ordenação clicável e DANFE/DANFSe fiéis ao padrão oficial. | Montar o espelho só a partir do modelo normalizado perde campos que não cabem em `DocumentoFiscal` (transportador, Código ANTT, DPS, domínios oficiais). | As rotas de espelho passam o `xml_bytes` bruto ao renderizador, com *fallback* para o `DocumentoFiscal`; a ordenação distingue número, data e texto. |
-| **25. QR Code, Lazy Load e Paginação** | QR Code no DANFSe v2.0 e escala para 15.000+ notas. | Listar o acervo descompactando o `xml_gzip` de cada nota estoura memória/tempo, e renderizar milhares de linhas trava o navegador. | `obter_acervo_unificado(incluir_xmls_brutos=False)` não toca no XML; índice `idx_lotes_itens_chave` + leitura pontual por nota; DOM só com a página ativa; QR Code em SVG puro (`qrcode`, sem Pillow). |
+
+### Decisões de projeto e riscos considerados (tarefas 19 a 25)
+
+Nas tarefas 19 a 25 **não** houve uma falha concreta apanhada em revisão: a tabela acima, das tarefas 1 a 18, é a que registra problemas identificados na revisão. Aqui estão as **decisões de projeto e os riscos previstos** no planejamento (`docs/BACKLOG.md`) e o que foi feito para cada um deles; são riscos considerados de antemão, não bugs encontrados depois.
+
+| Decisão | Risco considerado | Como foi tratado |
+| :--- | :--- | :--- |
+| **19. Documentação do Certificado** — Documentar o manuseio seguro do `.pfx` e o funcionamento do `NFeDistribuicaoDFe`. | Risco típico: copiar o `.pfx` com `COPY` no `Dockerfile` ou versionar um `.env` com senha, o que vazaria o certificado na imagem ou no Git. | Documentei o `.pfx` como volume `:ro` em tempo de execução, reforcei `.gitignore`/`.dockerignore` (`*.pfx`, `*.p12`, `.env`, `data/*.db`) e deixei segredos só em variáveis de ambiente. |
+| **20. Histórico e Acervo Unificado** — Persistir lotes enviados no SQLite e consolidar todas as notas em um acervo. | Somar todos os lotes direto contaria em dobro a mesma chave carregada em dois uploads, inflando os totais financeiros. | O resumo do acervo passa por `gerar_resumo_lote`, que ignora chaves repetidas nos totais, e os endpoints `/api/lote/*` continuam compatíveis. |
+| **21. Cadastro Visual do Certificado A1** — Enviar `.pfx` + senha pela interface web e guardar no computador. | Usar o nome do arquivo enviado abriria *path traversal*, e salvar antes de validar deixaria arquivo inválido no disco. | Valido o par `.pfx + senha` em memória antes de gravar e salvo sempre com nome fixo (`data/certificado/certificado.pfx`), em pasta ignorada pelo Git. |
+| **22. Redesign da Interface** — Escopo "Todo o acervo" vs. lote, importação compacta e sub-visões (tabela, painel, assistente). | Estado só no navegador faria o `F5` apagar tudo e o upload ocuparia metade da tela. | A página recarrega o acervo do SQLite ao abrir; o upload vira barra compacta com *drag-and-drop* global. |
+| **23. Polimento e Reset do Banco** — Tabela sem rolagem horizontal, `resetar-banco` e blindagem do `.gitignore`. | Um arquivo fiscal ou planilha gerada na pasta do projeto poderia ser versionado por acidente em repositório público. | `.gitignore` bloqueia `*.xml`/`*.zip`/`*.csv`/`*.xlsx` fora de `tests/fixtures/`; o reset existe na API, na CLI e na interface (a CLI não pede confirmação). |
+| **24. Ordenação e Layouts Oficiais** — Ordenação clicável e DANFE/DANFSe fiéis ao padrão oficial. | Montar o espelho só a partir do modelo normalizado perde campos que não cabem em `DocumentoFiscal` (transportador, Código ANTT, DPS, domínios oficiais). | As rotas de espelho passam o `xml_bytes` bruto ao renderizador, com *fallback* para o `DocumentoFiscal`; a ordenação distingue número, data e texto. |
+| **25. QR Code, Lazy Load e Paginação** — QR Code no DANFSe v2.0 e escala para 15.000+ notas. | Listar o acervo descompactando o `xml_gzip` de cada nota estoura memória/tempo, e renderizar milhares de linhas trava o navegador. | `obter_acervo_unificado(incluir_xmls_brutos=False)` não toca no XML; índice `idx_lotes_itens_chave` + leitura pontual por nota; DOM só com a página ativa; QR Code em SVG puro (`qrcode`, sem Pillow). |
 
 ---
 
