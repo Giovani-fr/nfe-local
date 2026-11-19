@@ -123,6 +123,11 @@ def _semear(base: str) -> None:
     salvar_certificado_local(pfx, SENHA_SINTETICA, uf_autor="35", ambiente=2)
 
     with httpx.Client(base_url=base, timeout=30) as cli:
+        # XML sintético quebrado (fixture) para mostrar a lista de ilegíveis no resumo
+        quebrado = (RAIZ / "tests" / "fixtures" / "xml_malformado.xml").read_bytes()
+        cli.post(
+            "/api/lote", files=[("files", ("xml_malformado.xml", quebrado, "application/xml"))]
+        )
         for rota in ("/api/lote/demo", "/api/recebidas/demo"):
             if cli.post(rota).status_code != 200:
                 raise SystemExit(f"Falha ao carregar a demonstração ({rota}).")
