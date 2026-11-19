@@ -97,8 +97,10 @@ class _Sessao:
         self.respostas = list(respostas)
         self.chamadas: list[dict] = []
 
-    def get(self, url, params=None, headers=None, timeout=None):
-        self.chamadas.append({"url": url, "params": dict(params or {})})
+    def get(self, url, params=None, headers=None, timeout=None, **kw):
+        self.chamadas.append(
+            {"url": url, "params": dict(params or {}), "timeout": timeout, "kw": kw}
+        )
         r = self.respostas.pop(0)
         if isinstance(r, Exception):
             raise r

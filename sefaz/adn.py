@@ -7,8 +7,10 @@ Contrato confirmado no Swagger oficial e resumido em `docs/adn.md`. O mesmo cert
 
 from __future__ import annotations
 
+import errno as _errno
 import json
 import os
+import re
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Literal
@@ -44,6 +46,163 @@ VARIAVEL_URL_BASE = "NFE_ADN_URL_BASE"
 CODIGOS_FILA_ZERADA = frozenset({"E2220", "E2230"})
 
 
+class FalhaConexao(BaseModel):
+    """Causa de uma falha de conexão, sem URL, CNPJ, caminho, senha nem mensagens brutas."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    etapa: str
+    excecao_raiz: str
+    cadeia_excecoes: list[str] = Field(default_factory=list)
+    codigo_so: str | None = None
+    motivo_tls: str | None = None
+    servidor_encerrou_conexao: bool = False
+    tempo_esgotado: bool = False
+    orientacao: str = ""
+
+
+_RE_MOTIVO_TLS = re.compile(r"^[A-Z0-9_]{3,60}$")
+_ENCERRAMENTO = {
+    "RemoteDisconnected",
+    "ConnectionResetError",
+    "ConnectionAbortedError",
+    "BrokenPipeError",
+    "SSLEOFError",
+}
+_TIMEOUTS = {
+    "ConnectTimeout",
+    "ReadTimeout",
+    "ConnectTimeoutError",
+    "ReadTimeoutError",
+    "TimeoutError",
+    "timeout",
+}
+_ORIENTACAO_ENCERROU = (
+    "o ADN pode não ter aceitado o certificado ou o endereço de rede. Tente outra rede e "
+    "confira se outro sistema usa o mesmo certificado ao mesmo tempo."
+)
+
+
+def _cadeia_excecoes(raiz: BaseException) -> list[tuple[BaseException, int]]:
+    """Percorre `__cause__`, `__context__`, `.reason` e `args` (em largura, sem repetir)."""
+    vistos: set[int] = set()
+    fila: list[tuple[BaseException, int]] = [(raiz, 0)]
+    saida: list[tuple[BaseException, int]] = []
+    while fila:
+        exc, profundidade = fila.pop(0)
+        if id(exc) in vistos:
+            continue
+        vistos.add(id(exc))
+        saida.append((exc, profundidade))
+        candidatos = [exc.__cause__, exc.__context__, getattr(exc, "reason", None)]
+        candidatos += list(getattr(exc, "args", ()) or ())
+        fila.extend((c, profundidade + 1) for c in candidatos if isinstance(c, BaseException))
+    return saida
+
+
+def _codigo_so(cadeia: list[tuple[BaseException, int]]) -> str | None:
+    for exc, _ in reversed(cadeia):
+        if not isinstance(exc, OSError):
+            continue
+        winerror = getattr(exc, "winerror", None)
+        if winerror:
+            return f"WinError {winerror}"
+        if exc.errno:
+            simbolo = _errno.errorcode.get(exc.errno)
+            return f"errno {exc.errno}" + (f" ({simbolo})" if simbolo else "")
+    return None
+
+
+def analisar_falha_conexao(exc: BaseException) -> FalhaConexao:
+    """Classifica a falha: etapa, exceção raiz, código do SO, encerramento/timeout e orientação."""
+    cadeia = _cadeia_excecoes(exc)
+    nomes: set[str] = set()
+    for e, _ in cadeia:
+        nomes |= {c.__name__ for c in type(e).__mro__}
+    mensagens = " ".join(str(e).lower() for e, _ in cadeia)
+    maior = max(p for _, p in cadeia)
+    raiz = [e for e, p in cadeia if p == maior][-1]
+    motivo = next(
+        (
+            e.reason
+            for e, _ in cadeia
+            if isinstance(getattr(e, "reason", None), str) and _RE_MOTIVO_TLS.match(e.reason)
+        ),
+        None,
+    )
+
+    encerrou = bool(nomes & _ENCERRAMENTO) or "eof occurred" in mensagens
+    # `NewConnectionError` herda de `ConnectTimeoutError` no urllib3: só conta o tipo exato.
+    timeout = (
+        any(isinstance(e, TimeoutError) or type(e).__name__ in _TIMEOUTS for e, _ in cadeia)
+        or "timed out" in mensagens
+    )
+    handshake_tls = bool(nomes & {"SSLError", "SSLEOFError"}) or "handshake" in mensagens
+
+    if nomes & {"NameResolutionError", "gaierror"} or "getaddrinfo failed" in mensagens:
+        etapa = "resolução de nome"
+        orientacao = (
+            "O nome do servidor não foi resolvido. Verifique a internet, o DNS e VPN/proxy."
+        )
+    elif handshake_tls and timeout:
+        etapa = "handshake TLS"
+        orientacao = "O handshake TLS demorou demais. Aumente --timeout ou tente outra rede."
+    elif handshake_tls:
+        etapa = "handshake TLS"
+        orientacao = (
+            f"O servidor encerrou a conexão no handshake TLS: {_ORIENTACAO_ENCERROU}"
+            if encerrou
+            else "A negociação TLS falhou. Confira o certificado A1 (validade e senha) e a data "
+            "do computador."
+        )
+    elif nomes & {"ReadTimeout", "ReadTimeoutError"}:
+        etapa = "leitura da resposta"
+        orientacao = "O servidor não respondeu a tempo. Aumente --timeout ou tente mais tarde."
+    elif timeout:
+        etapa = "conexão TCP"
+        orientacao = (
+            "A conexão com o servidor (porta 443) demorou demais. Verifique firewall, proxy e VPN, "
+            "ou aumente --timeout."
+        )
+    elif nomes & {"ConnectionRefusedError", "NewConnectionError"}:
+        etapa = "conexão TCP"
+        orientacao = (
+            "A conexão com o servidor (porta 443) foi recusada ou não alcançou o destino. "
+            "Verifique firewall, proxy e VPN, e tente outra rede."
+        )
+    elif "RemoteDisconnected" in nomes:
+        etapa = "leitura da resposta"
+        orientacao = (
+            "A conexão TLS foi estabelecida, mas o servidor a encerrou sem responder: "
+            + _ORIENTACAO_ENCERROU
+        )
+    elif encerrou:
+        etapa = "handshake TLS (provável)"
+        orientacao = (
+            f"O servidor encerrou a conexão (reset) durante o handshake TLS: {_ORIENTACAO_ENCERROU}"
+        )
+    else:
+        etapa = "não identificada"
+        orientacao = (
+            "Falha de conexão não classificada. Tente novamente, em outra rede se possível."
+        )
+
+    return FalhaConexao(
+        etapa=etapa,
+        excecao_raiz=type(raiz).__name__,
+        cadeia_excecoes=[type(e).__name__ for e, _ in cadeia],
+        codigo_so=_codigo_so(cadeia),
+        motivo_tls=motivo,
+        servidor_encerrou_conexao=encerrou,
+        tempo_esgotado=timeout,
+        orientacao=orientacao,
+    )
+
+
+def mensagem_falha_conexao(falha: FalhaConexao) -> str:
+    return f"Falha de conexão com o ADN (etapa: {falha.etapa}). {falha.orientacao}"
+
+
 class ErroADN(Exception):
     """Falha de comunicação ou resposta inesperada do ADN (a rejeição documentada não é erro)."""
 
@@ -54,8 +213,10 @@ class ErroADN(Exception):
         categoria: CategoriaErroADN,
         http_status: int | None = None,
         retry_apos_segundos: int | None = None,
+        falha: FalhaConexao | None = None,
     ) -> None:
         super().__init__(mensagem)
+        self.falha = falha
         self.categoria = categoria
         self.http_status = http_status
         self.retry_apos_segundos = retry_apos_segundos
@@ -309,6 +470,18 @@ def _segundos_retry_after(valor: str | None) -> int | None:
     return max(1, int((alvo - datetime.now(UTC)).total_seconds()))
 
 
+def _info_tls(resp: Any) -> tuple[str | None, str | None] | None:
+    """`(versão, cifrador)` do TLS negociado, se a conexão ainda estiver acessível."""
+    try:
+        bruto = resp.raw
+        conexao = getattr(bruto, "_connection", None) or getattr(bruto, "connection", None)
+        sock = conexao.sock
+        cifrador = sock.cipher()
+        return sock.version(), (cifrador[0] if cifrador else None)
+    except Exception:  # noqa: BLE001 - melhor esforço; nunca derruba o diagnóstico
+        return None
+
+
 class ClienteADN:
     """Cliente `GET /DFe/{NSU}` com mTLS em memória e `cnpjConsulta` sempre presente."""
 
@@ -331,10 +504,15 @@ class ClienteADN:
         self._timeout = timeout_segundos
         self._base_url = resolver_url_base(self._ambiente, base_url)
         self._cnpj = resolver_cnpj_consulta(cnpj_consulta, self._metadados.documento)
+        self.ultima_info_tls: tuple[str | None, str | None] | None = None
 
     @property
     def cnpj_consulta(self) -> str:
         return self._cnpj
+
+    @property
+    def timeout_segundos(self) -> float:
+        return self._timeout
 
     @property
     def base_url(self) -> str:
@@ -363,32 +541,37 @@ class ClienteADN:
         )
         return sessao
 
-    def requisitar(self, nsu: int, *, lote: bool = True) -> tuple[int, bytes, int | None]:
+    def requisitar(
+        self, nsu: int, *, lote: bool = True, capturar_tls: bool = False
+    ) -> tuple[int, bytes, int | None]:
         """Uma chamada `GET /DFe/{NSU}`: devolve `(http_status, corpo, retry_after)` crus.
 
-        Levanta `ErroADN(CONEXAO)` se a conexão (ou o TLS) falhar antes de haver resposta HTTP.
+        Levanta `ErroADN(CONEXAO)` (com `.falha`) se a conexão falhar antes de haver resposta
+        HTTP. Com `capturar_tls`, guarda em `ultima_info_tls` a versão e o cifrador negociados.
         """
         params = {"cnpjConsulta": self._cnpj, "lote": "true" if lote else "false"}
         sessao = self._sessao_http if self._sessao_http is not None else self._criar_sessao_mtls()
+        self.ultima_info_tls = None
+        extra = {"stream": True} if capturar_tls else {}
         try:
             resp = sessao.get(
                 self.url_nsu(nsu),
                 params=params,
                 headers={"Accept": "application/json, text/plain, */*"},
                 timeout=self._timeout,
+                **extra,
             )
-        except requests.exceptions.SSLError as exc:
-            raise ErroADN(
-                "Falha na conexão segura (TLS) com o ADN. Verifique o certificado A1 e a data "
-                "do computador, e tente novamente.",
-                categoria="CONEXAO",
-            ) from exc
         except requests.RequestException as exc:
+            falha = analisar_falha_conexao(exc)
+            raise ErroADN(mensagem_falha_conexao(falha), categoria="CONEXAO", falha=falha) from exc
+        except ValueError as exc:  # ex.: certificado vencido recusado pelo adaptador
             raise ErroADN(
-                f"Não foi possível conectar ao ADN ({type(exc).__name__}). Tente novamente.",
-                categoria="CONEXAO",
+                "O certificado A1 não pôde ser usado na conexão (vencido ou inválido).",
+                categoria="ACESSO",
             ) from exc
 
+        if capturar_tls:
+            self.ultima_info_tls = _info_tls(resp)
         status = int(getattr(resp, "status_code", 0))
         corpo = getattr(resp, "content", b"") or str(getattr(resp, "text", "")).encode("utf-8")
         cabecalhos = getattr(resp, "headers", None) or {}
