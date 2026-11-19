@@ -344,6 +344,38 @@ class TestRotasRecebidasSEFAZ:
             == 404
         )
 
+    def test_delete_api_recebidas_e_limpar_notas_recebidas_no_storage(
+        self,
+        client: TestClient,
+        repo_sqlite: RepositorioDistDFeSQLite,
+    ) -> None:
+        # Popula banco com demonstração DistDFe (3 notas + 1 evento + cursor + sync_log)
+        resp_demo = client.post("/api/recebidas/demo")
+        assert resp_demo.status_code == 200
+        assert client.get("/api/recebidas").json()["total"] == 3
+        assert repo_sqlite.obter_cursor(ambiente=2).ultimo_nsu != "000000000000000"
+        assert len(repo_sqlite.listar_logs_sync()) >= 1
+
+        # Primeiro testa limpar_notas_recebidas(zerar_cursor=False) preservando cursor/logs
+        removidas_sem_cursor = repo_sqlite.limpar_notas_recebidas(zerar_cursor=False)
+        assert removidas_sem_cursor == 3
+        assert repo_sqlite.listar_notas_recebidas() == []
+        assert repo_sqlite.obter_cursor(ambiente=2).ultimo_nsu != "000000000000000"
+        assert len(repo_sqlite.listar_logs_sync()) >= 1
+
+        # Recarrega demonstração e testa DELETE /api/recebidas (zera notas, eventos, cursor e logs)
+        assert client.post("/api/recebidas/demo").status_code == 200
+        assert client.get("/api/recebidas").json()["total"] == 3
+
+        resp_del = client.delete("/api/recebidas")
+        assert resp_del.status_code == 200
+        assert resp_del.json() == {"removidas": 3}
+
+        assert client.get("/api/recebidas").json()["total"] == 0
+        status_pos = client.get("/api/recebidas/status").json()
+        assert status_pos["cursor"]["ultimo_nsu"] == "000000000000000"
+        assert status_pos["ultimos_logs"] == []
+
     def test_interface_web_contem_abas_e_painel_recebidas_dist_dfe(
         self,
         client: TestClient,
@@ -358,3 +390,14 @@ class TestRotasRecebidasSEFAZ:
         assert "Cadastrar / Trocar Certificado (.pfx)" in html
         assert "form-cadastro-certificado" in html
         assert "Validar e Salvar Certificado" in html
+        assert "Zerar Banco Local" in html
+        assert "Limpar Recebidas" in html
+        assert "btn-resetar-banco-topo" in html
+        assert "btn-resetar-banco-sidebar" in html
+        assert "btn-limpar-recebidas" in html
+        assert "col-actions" in html
+
+        resp_css = client.get("/static/styles.css")
+        assert resp_css.status_code == 200
+        assert "position: sticky" in resp_css.text
+        assert "data-table-notas" in resp_css.text

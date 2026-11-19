@@ -1132,3 +1132,23 @@ def baixar_xml_nota_recebida(chave: str) -> Response:
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{nome_seguro}"'},
     )
+
+
+@app.delete("/api/recebidas")
+def limpar_recebidas_sefaz() -> dict[str, int]:
+    """Remove notas recebidas, eventos, cursores NSU e logs de sincronização do SQLite local."""
+    removidas = obter_repositorio_recebidas().limpar_notas_recebidas(zerar_cursor=True)
+    return {"removidas": removidas}
+
+
+@app.post("/api/sistema/resetar-banco")
+def resetar_banco_sistema() -> dict[str, str | int]:
+    """Zera completamente o banco SQLite local (Aba 1 + Aba 2), cache de lotes e cache LLM."""
+    resultado = obter_repositorio_recebidas().resetar_banco_completo()
+    _REPOSITORIO_LOTES.limpar()
+    _SERVICO_ASSISTENTE.limpar_cache()
+    return {
+        "status": "ok",
+        "lotes_removidos": resultado["lotes_removidos"],
+        "recebidas_removidas": resultado["recebidas_removidas"],
+    }

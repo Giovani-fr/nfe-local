@@ -154,3 +154,12 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - **Organização Visual em Sub-visões Limpas:** separar claramente a **`📋 Tabela de Notas e Filtros`** (foco operacional imediato com busca, filtro por tipo, status, emitente e período) do **`📊 Painel Gerencial e Impostos`** (KPIs, tributos consolidados, tabelas por emitente e por competência) e do **`🤖 Assistente Analítico`**.
     - **Modal/Painel Visual de Certificado A1 na Aba SEFAZ:** formulário amigável para selecionar o `.pfx`, digitar a senha, escolher UF e Ambiente (Homologação/Produção), ver status de validade e remover o certificado quando desejar.
 
+- [x] **23. Polimento para Uso Real: Tabela sem Rolagem Horizontal, Reset Completo do SQLite e Blindagem Extra no `.gitignore`**
+  - **Blindagem anti-vazamento no `.gitignore`:** bloquear qualquer arquivo `*.xml`, `*.zip`, `*.csv` e `*.xlsx` fora de `tests/fixtures/` (`!tests/fixtures/**/*.xml`), garantindo que nenhum arquivo fiscal real ou planilha gerada na pasta do projeto possa ser versionado por acidente.
+  - **Tabela de Notas sem barra de rolagem horizontal (`web/static/styles.css` e `web/static/app.js`):** ajustar larguras e quebras das colunas (especialmente a Chave de Acesso de 44/50 dígitos, com opção de copiar chave e quebra limpa) e fixar a visibilidade da coluna **Ações** (`📄 DANFE / DANFSe`, `🔍 Detalhes`, `⬇ XML`) para que fique sempre visível na tela sem precisar rolar para a direita.
+  - **Reset Completo do SQLite Local (Aba 1 + Aba 2 + CLI):**
+    - Implementar `limpar_notas_recebidas` e `resetar_banco_completo` em `sefaz/storage.py`.
+    - Criar endpoints `DELETE /api/recebidas` e `POST /api/sistema/resetar-banco` em `api/app.py` e subcomando CLI `nfe-local resetar-banco`.
+    - Adicionar botões na interface web para limpar as notas recebidas da Aba 2 e para **Resetar Todo o Banco Local** (separando testes de dados reais), e deixar o banco local `data/nfe_recebidas.db` zerado ao final da tarefa.
+
+

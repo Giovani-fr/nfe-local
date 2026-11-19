@@ -264,6 +264,11 @@ class CachePerguntasLLM:
         """Remove todas as entradas do cache."""
         with self._lock:
             self._dados.clear()
+            if self._caminho_arquivo is not None and self._caminho_arquivo.is_file():
+                try:
+                    self._caminho_arquivo.write_text("{}", encoding="utf-8")
+                except OSError:
+                    pass
 
 
 class LimitadorUsoLLM:
@@ -402,6 +407,10 @@ class ServicoAssistenteLote:
             "chamadas_restantes": restantes,
             "max_chamadas_hora": cfg.max_chamadas_hora,
         }
+
+    def limpar_cache(self) -> None:
+        """Limpa o cache de perguntas e respostas do assistente LLM."""
+        self._cache.limpar()
 
     def _chamar_http_openai_compat(
         self,

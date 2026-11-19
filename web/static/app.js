@@ -52,6 +52,54 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
+  const renderizarChaveComCopia = (chave) => {
+    if (!chave) return "";
+    const limpa = String(chave).trim();
+    if (!limpa) return "";
+    const exibicao =
+      limpa.length > 20 ? `${limpa.slice(0, 8)}…${limpa.slice(-8)}` : limpa;
+    return `
+      <div class="chave-row">
+        <code class="chave-code" title="${escaparHtml(limpa)}">${escaparHtml(exibicao)}</code>
+        <button
+          type="button"
+          class="btn-copy-chave"
+          data-action="copiar-chave"
+          data-chave="${escaparHtml(limpa)}"
+          title="Copiar chave completa (${limpa.length} caracteres)"
+          aria-label="Copiar chave de acesso"
+        >📋</button>
+      </div>
+    `;
+  };
+
+  const copiarChaveParaClipboard = async (chave, btnEl) => {
+    if (!chave) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(chave);
+      } else {
+        const tmp = document.createElement("textarea");
+        tmp.value = chave;
+        tmp.style.position = "fixed";
+        tmp.style.opacity = "0";
+        document.body.appendChild(tmp);
+        tmp.select();
+        document.execCommand("copy");
+        document.body.removeChild(tmp);
+      }
+      if (btnEl) {
+        const orig = btnEl.textContent;
+        btnEl.textContent = "✅";
+        setTimeout(() => {
+          btnEl.textContent = orig;
+        }, 1400);
+      }
+    } catch (_) {
+      // Silencioso caso o navegador bloqueie clipboard em contexto restrito
+    }
+  };
+
   const definirStatusUpload = (msg, erro = false) => {
     const el = document.getElementById("upload-status");
     if (!el) return;
@@ -529,11 +577,11 @@
 
       const numSerie = doc ? `${doc.numero || "-"} / ${doc.serie || "-"}` : "-";
       const emitenteStr = doc
-        ? `<strong>${escaparHtml(doc.emitente.razao_social || "-")}</strong><br/><span class="muted">${escaparHtml(fmtDoc(doc.emitente.documento))}</span>`
+        ? `<strong class="parte-nome">${escaparHtml(doc.emitente.razao_social || "-")}</strong><code class="doc-code">${escaparHtml(fmtDoc(doc.emitente.documento))}</code>`
         : '<span class="muted">-</span>';
       const destStr =
         doc && doc.destinatario
-          ? `${escaparHtml(doc.destinatario.razao_social || "-")}<br/><span class="muted">${escaparHtml(fmtDoc(doc.destinatario.documento))}</span>`
+          ? `<span class="parte-nome">${escaparHtml(doc.destinatario.razao_social || "-")}</span><code class="doc-code">${escaparHtml(fmtDoc(doc.destinatario.documento))}</code>`
           : '<span class="muted">Não identificado</span>';
       const valorTotal = doc ? fmtMoeda(doc.totais.valor_total_nota) : "0,00";
 
@@ -544,21 +592,21 @@
 
       linhas.push(`
         <tr>
-          <td>
-            <strong>${escaparHtml(res.arquivo_origem)}</strong>
-            ${doc?.chave_acesso ? `<br/><code class="muted">${escaparHtml(doc.chave_acesso)}</code>` : ""}
+          <td class="col-arquivo">
+            <strong class="arquivo-nome" title="${escaparHtml(res.arquivo_origem)}">${escaparHtml(res.arquivo_origem)}</strong>
+            ${doc?.chave_acesso ? renderizarChaveComCopia(doc.chave_acesso) : ""}
           </td>
-          <td><span class="badge badge-type">${escaparHtml(tipo)}</span></td>
-          <td>${escaparHtml(numSerie)}</td>
-          <td>${emitenteStr}</td>
-          <td>${destStr}</td>
-          <td class="num"><strong>${valorTotal}</strong></td>
-          <td>${renderizarBadgesNota(res)}</td>
-          <td>
+          <td class="col-tipo"><span class="badge badge-type">${escaparHtml(tipo)}</span></td>
+          <td class="col-numero">${escaparHtml(numSerie)}</td>
+          <td class="col-parte">${emitenteStr}</td>
+          <td class="col-parte">${destStr}</td>
+          <td class="num col-valor"><strong>${valorTotal}</strong></td>
+          <td class="col-status"><div class="badges-wrap">${renderizarBadgesNota(res)}</div></td>
+          <td class="col-actions">
             <div class="row-actions">
               ${btnEspelho}
-              <button type="button" class="btn btn-sm btn-secondary" data-action="detalhes" data-idx="${idx}">
-                🔍 Detalhes &amp; Itens
+              <button type="button" class="btn btn-sm btn-secondary" data-action="detalhes" data-idx="${idx}" title="Ver detalhes, itens e alertas">
+                🔍 Detalhes
               </button>
               <a class="btn btn-sm btn-ghost" href="/lote/${estado.loteId}/nota/${idx}/xml" download>
                 ⬇ XML
@@ -1026,19 +1074,19 @@
           const chaveUrl = encodeURIComponent(n.chave);
           return `
             <tr>
-              <td><code>${escaparHtml(n.nsu)}</code></td>
-              <td>${escaparHtml(dtEmi)}</td>
-              <td>
+              <td class="col-nsu"><code>${escaparHtml(n.nsu)}</code></td>
+              <td class="col-emissao">${escaparHtml(dtEmi)}</td>
+              <td class="col-num-chave">
                 <strong>${escaparHtml(numSerie)}</strong>
-                <br/><code class="muted">${escaparHtml(n.chave)}</code>
+                ${renderizarChaveComCopia(n.chave)}
               </td>
-              <td>
-                <strong>${escaparHtml(n.emitente_nome || "-")}</strong>
-                <br/><span class="muted">${escaparHtml(fmtDoc(n.emitente_documento))}</span>
+              <td class="col-parte-rec">
+                <strong class="parte-nome">${escaparHtml(n.emitente_nome || "-")}</strong>
+                <code class="doc-code">${escaparHtml(fmtDoc(n.emitente_documento))}</code>
               </td>
-              <td class="num"><strong>${fmtMoeda(n.valor_total)}</strong></td>
-              <td>${renderizarBadgesRecebida(n)}</td>
-              <td>
+              <td class="num col-valor-rec"><strong>${fmtMoeda(n.valor_total)}</strong></td>
+              <td class="col-sit-rec"><div class="badges-wrap">${renderizarBadgesRecebida(n)}</div></td>
+              <td class="col-actions">
                 <div class="row-actions">
                   <a class="btn btn-sm btn-primary" href="/recebidas/${chaveUrl}/espelho" target="_blank" rel="noopener">
                     📄 DANFE
@@ -1112,6 +1160,74 @@
     carregarListaRecebidas();
   };
 
+  const limparNotasRecebidas = async () => {
+    const confirmado = window.confirm(
+      "Remover todas as notas recebidas, eventos e zerar o cursor NSU no banco SQLite local?"
+    );
+    if (!confirmado) return;
+
+    definirStatusRecebidas("Limpando notas recebidas e zerando cursor NSU...");
+    try {
+      const resp = await fetch("/api/recebidas", { method: "DELETE" });
+      const dados = await resp.json();
+      if (!resp.ok) {
+        definirStatusRecebidas(dados.detail || "Falha ao limpar notas recebidas.", true);
+        return;
+      }
+      await carregarStatusRecebidas();
+      await carregarListaRecebidas();
+      definirStatusRecebidas(
+        `${dados.removidas} nota(s) recebida(s) removida(s) e cursor NSU zerado.`
+      );
+    } catch (err) {
+      definirStatusRecebidas(`Erro ao limpar recebidas: ${err.message}`, true);
+    }
+  };
+
+  const resetarBancoCompleto = async () => {
+    const confirmado = window.confirm(
+      "Zerar completamente o banco SQLite local?\n\n" +
+        "Isso apagará todos os lotes importados (Aba 1), todas as notas recebidas da SEFAZ (Aba 2), " +
+        "cursores NSU e logs, deixando o sistema pronto para dados reais. " +
+        "Seu Certificado Digital A1 configurado não será apagado."
+    );
+    if (!confirmado) return;
+
+    definirStatusUpload("Zerando banco SQLite local...");
+    definirStatusRecebidas("Zerando banco SQLite local...");
+    try {
+      const resp = await fetch("/api/sistema/resetar-banco", { method: "POST" });
+      const dados = await resp.json();
+      if (!resp.ok) {
+        const msg = dados.detail || "Falha ao zerar o banco SQLite local.";
+        definirStatusUpload(msg, true);
+        definirStatusRecebidas(msg, true);
+        return;
+      }
+
+      estado.loteId = null;
+      estado.escopoId = "acervo";
+      estado.resumo = null;
+      estado.resultados = [];
+      estado.historicoLotes = [];
+
+      document.getElementById("painel-lote")?.classList.add("hidden");
+      document.getElementById("estado-vazio-lotes")?.classList.remove("hidden");
+      renderizarSidebarHistorico();
+      await carregarStatusRecebidas();
+      await carregarListaRecebidas();
+
+      const msgSucesso =
+        `Banco SQLite zerado (${dados.lotes_removidos} lote(s) e ` +
+        `${dados.recebidas_removidas} recebida(s) removida(s)). Pronto para dados reais!`;
+      definirStatusUpload(msgSucesso);
+      definirStatusRecebidas(msgSucesso);
+    } catch (err) {
+      definirStatusUpload(`Erro ao zerar banco: ${err.message}`, true);
+      definirStatusRecebidas(`Erro ao zerar banco: ${err.message}`, true);
+    }
+  };
+
   document.addEventListener("DOMContentLoaded", async () => {
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("file-input");
@@ -1152,7 +1268,8 @@
     }
 
     document.getElementById("btn-limpar-demos")?.addEventListener("click", () => limparHistorico(true));
-    document.getElementById("btn-zerar-historico")?.addEventListener("click", () => limparHistorico(false));
+    document.getElementById("btn-resetar-banco-sidebar")?.addEventListener("click", resetarBancoCompleto);
+    document.getElementById("btn-resetar-banco-topo")?.addEventListener("click", resetarBancoCompleto);
 
     // Clique em um emitente na aba Resumo filtra a aba Notas Fiscais
     document.getElementById("tbody-emitentes")?.addEventListener("click", (e) => {
@@ -1170,6 +1287,7 @@
     // Controles SEFAZ e Certificado A1
     document.getElementById("btn-sync-sefaz")?.addEventListener("click", sincronizarComSefaz);
     document.getElementById("btn-demo-recebidas")?.addEventListener("click", carregarRecebidasDemo);
+    document.getElementById("btn-limpar-recebidas")?.addEventListener("click", limparNotasRecebidas);
     document.getElementById("btn-abrir-modal-cert")?.addEventListener("click", abrirModalCertificado);
     document.getElementById("btn-card-cadastrar-cert")?.addEventListener("click", abrirModalCertificado);
     document.getElementById("btn-fechar-modal-cert")?.addEventListener("click", fecharModalCertificado);
@@ -1252,9 +1370,21 @@
     });
 
     document.getElementById("tbody-notas")?.addEventListener("click", (e) => {
+      const btnCopiar = e.target.closest("[data-action='copiar-chave']");
+      if (btnCopiar) {
+        copiarChaveParaClipboard(btnCopiar.dataset.chave, btnCopiar);
+        return;
+      }
       const btn = e.target.closest("[data-action='detalhes']");
       if (btn) {
         abrirModalDetalhes(Number(btn.dataset.idx));
+      }
+    });
+
+    document.getElementById("tbody-recebidas")?.addEventListener("click", (e) => {
+      const btnCopiar = e.target.closest("[data-action='copiar-chave']");
+      if (btnCopiar) {
+        copiarChaveParaClipboard(btnCopiar.dataset.chave, btnCopiar);
       }
     });
 

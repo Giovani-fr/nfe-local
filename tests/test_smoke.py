@@ -92,3 +92,17 @@ def test_gitignore_protege_segredos_e_artefatos() -> None:
     }
     faltantes = padroes_obrigatorios - linhas
     assert not faltantes, f"Padrões de segurança ausentes no .gitignore: {faltantes}"
+
+
+def test_gitignore_bloqueia_xmls_e_planilhas_exceto_fixtures() -> None:
+    """Garante blindagem contra vazamento de XMLs/ZIPs/CSVs/XLSXs reais fora de tests/fixtures/."""
+    caminho_gitignore = RAIZ_PROJETO / ".gitignore"
+    conteudo = caminho_gitignore.read_text(encoding="utf-8")
+    linhas = {linha.strip() for linha in conteudo.splitlines() if linha.strip()}
+
+    for padrao in ("*.xml", "*.zip", "*.csv", "*.xlsx"):
+        assert padrao in linhas, f"Regra de blindagem ausente no .gitignore: {padrao}"
+
+    assert "!tests/fixtures/" in conteudo, "Exceção '!tests/fixtures/' ausente no .gitignore"
+    assert "!tests/fixtures/*.xml" in linhas
+    assert "!tests/fixtures/sefaz/*.xml" in linhas

@@ -967,6 +967,45 @@ class RepositorioDistDFeSQLite:
         resumo = gerar_resumo_lote(resultados_unificados)
         return criado_em_ref, resumo, resultados_unificados, xmls_brutos
 
+    def limpar_notas_recebidas(self, zerar_cursor: bool = True) -> int:
+        """Remove notas e eventos recebidos (e opcionalmente `dfe_cursor` e `sync_log`)."""
+        conn = self._conectar()
+        try:
+            with conn:
+                cur_notas = conn.execute("DELETE FROM notas_recebidas")
+                conn.execute("DELETE FROM eventos_recebidos")
+                if zerar_cursor:
+                    conn.execute("DELETE FROM dfe_cursor")
+                    conn.execute("DELETE FROM sync_log")
+                return int(cur_notas.rowcount or 0)
+        finally:
+            conn.close()
+
+    def resetar_banco_completo(self, executar_vacuum: bool = True) -> dict[str, int]:
+        """Apaga lotes de upload, notas recebidas, eventos, cursores e logs do SQLite local."""
+        conn = self._conectar()
+        try:
+            with conn:
+                conn.execute("DELETE FROM lotes_upload_itens")
+                cur_lotes = conn.execute("DELETE FROM lotes_upload")
+                cur_recebidas = conn.execute("DELETE FROM notas_recebidas")
+                conn.execute("DELETE FROM eventos_recebidos")
+                conn.execute("DELETE FROM dfe_cursor")
+                conn.execute("DELETE FROM sync_log")
+                lotes_removidos = int(cur_lotes.rowcount or 0)
+                recebidas_removidas = int(cur_recebidas.rowcount or 0)
+
+            if executar_vacuum:
+                conn.isolation_level = None
+                conn.execute("VACUUM")
+        finally:
+            conn.close()
+
+        return {
+            "lotes_removidos": lotes_removidos,
+            "recebidas_removidas": recebidas_removidas,
+        }
+
 
 def sincronizar_dist_dfe(
     consultar_fn: Callable[[str], RespostaDistDFe],

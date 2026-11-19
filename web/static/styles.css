@@ -125,6 +125,7 @@ body {
 .topbar-actions {
   display: flex;
   gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 /* Botões e Inputs */
@@ -281,8 +282,8 @@ body {
 /* Workspace em 2 Colunas (Sidebar + Painel Principal) */
 .workspace-grid {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 1.2rem;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 1.15rem;
   align-items: start;
 }
 
@@ -740,17 +741,18 @@ body {
 
 .table-responsive {
   overflow-x: auto;
+  width: 100%;
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
 }
 
 .data-table th,
 .data-table td {
-  padding: 0.62rem 0.68rem;
+  padding: 0.58rem 0.6rem;
   border-bottom: 1px solid var(--border-color);
   text-align: left;
   vertical-align: middle;
@@ -760,7 +762,7 @@ body {
   background-color: var(--bg-elevated);
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -769,6 +771,208 @@ body {
 .data-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Tabelas de Notas (Aba 1 e Aba 2): 100% da largura sem rolagem horizontal no desktop */
+.data-table-notas,
+.data-table-recebidas {
+  table-layout: fixed;
+  width: 100%;
+  font-size: 0.79rem;
+}
+
+.data-table-notas th,
+.data-table-notas td,
+.data-table-recebidas th,
+.data-table-recebidas td {
+  padding: 0.52rem 0.45rem;
+}
+
+/* Larguras proporcionais — Aba 1 (soma = 100%) */
+.data-table-notas .col-arquivo {
+  width: 16%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.data-table-notas .col-tipo {
+  width: 7%;
+}
+
+.data-table-notas .col-numero {
+  width: 9%;
+  word-break: break-word;
+}
+
+.data-table-notas .col-parte {
+  width: 17%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.data-table-notas .col-valor {
+  width: 10%;
+}
+
+.data-table-notas .col-status {
+  width: 12%;
+}
+
+.data-table-notas .col-actions {
+  width: 12%;
+}
+
+/* Larguras proporcionais — Aba 2 (soma = 100%) */
+.data-table-recebidas .col-nsu {
+  width: 12%;
+  word-break: break-all;
+}
+
+.data-table-recebidas .col-emissao {
+  width: 9%;
+  white-space: nowrap;
+}
+
+.data-table-recebidas .col-num-chave {
+  width: 19%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.data-table-recebidas .col-parte-rec {
+  width: 23%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.data-table-recebidas .col-valor-rec {
+  width: 11%;
+}
+
+.data-table-recebidas .col-sit-rec {
+  width: 15%;
+}
+
+.data-table-recebidas .col-actions {
+  width: 11%;
+}
+
+/* Chave compacta + botão copiar 1 clique */
+.arquivo-nome {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.chave-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.22rem;
+  max-width: 100%;
+  flex-wrap: nowrap;
+}
+
+.chave-code {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  word-break: break-all;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.06rem 0.3rem;
+}
+
+.btn-copy-chave {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  padding: 0.1rem 0.28rem;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.btn-copy-chave:hover {
+  color: var(--accent-gold);
+  border-color: var(--accent-gold);
+  background-color: var(--accent-gold-bg);
+}
+
+.parte-nome {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.28;
+}
+
+.doc-code {
+  display: inline-block;
+  margin-top: 0.14rem;
+  font-size: 0.71rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.badges-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: flex-start;
+}
+
+.data-table-notas .badge,
+.data-table-recebidas .badge {
+  font-size: 0.67rem;
+  padding: 0.13rem 0.38rem;
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.2;
+}
+
+/* Coluna Ações fixa à direita como garantia extra em janelas estreitas */
+.data-table th.col-actions,
+.data-table td.col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background-color: var(--bg-card);
+  box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.35);
+}
+
+.data-table th.col-actions {
+  background-color: var(--bg-elevated);
+  z-index: 3;
+}
+
+.data-table-notas .row-actions,
+.data-table-recebidas .row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.data-table-notas .row-actions .btn-sm,
+.data-table-recebidas .row-actions .btn-sm {
+  width: 100%;
+  justify-content: center;
+  padding: 0.24rem 0.38rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+  .data-table-notas,
+  .data-table-recebidas {
+    min-width: 860px;
+  }
 }
 
 .clickable-row {

@@ -26,6 +26,14 @@ data/
 *.sqlite3
 saidas/
 
+# Proteção anti-vazamento: XMLs fiscais reais, ZIPs e planilhas exportadas
+*.xml
+*.zip
+*.csv
+*.xlsx
+!tests/fixtures/*.xml
+!tests/fixtures/sefaz/*.xml
+
 # Logs e diagnóstico
 instalar.log
 *.log

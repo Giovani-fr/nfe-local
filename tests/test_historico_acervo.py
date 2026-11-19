@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from decimal import Decimal
 from pathlib import Path
@@ -9,11 +10,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from api import app
+from api import app, cli
 from api.app import (
     definir_repositorio_recebidas,
+    definir_servico_assistente,
     obter_repositorio_lotes,
+    obter_servico_assistente,
 )
+from reports.assistente_lote import ServicoAssistenteLote
 from sefaz.storage import RepositorioDistDFeSQLite
 
 PASTA_FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -279,3 +283,105 @@ class TestHistoricoPersistenteEAcervoUnificado:
         assert resp_limpar_tudo.status_code == 200
         assert resp_limpar_tudo.json() == {"removidos": 1}
         assert client.get("/api/lotes").json()["total"] == 0
+
+    def test_post_sistema_resetar_banco_limpa_lotes_recebidas_lru_e_cache_llm(
+        self, client: TestClient
+    ) -> None:
+        servico_orig = obter_servico_assistente()
+        chamadas_llm = 0
+
+        def fake_llm(
+            _mensagens: list[dict[str, str]],
+            _modelo: str,
+            _base_url: str,
+            _api_key: str,
+        ) -> str:
+            nonlocal chamadas_llm
+            chamadas_llm += 1
+            return f"Resposta simulada #{chamadas_llm}"
+
+        definir_servico_assistente(
+            ServicoAssistenteLote(
+                api_key="chave-fake",
+                modelo="modelo-teste",
+                cliente_completion=fake_llm,
+            )
+        )
+        try:
+            # Popula Aba 1 (lote demo) + Aba 2 (recebidas demo) + cache do assistente LLM
+            lote_id = client.post("/api/lote/demo").json()["lote_id"]
+            resp_rec_demo = client.post("/api/recebidas/demo")
+            assert resp_rec_demo.status_code == 200
+            assert client.get("/api/lotes").json()["total"] == 1
+            assert client.get("/api/recebidas").json()["total"] == 3
+
+            resp_p1 = client.post(
+                f"/api/lote/{lote_id}/perguntar",
+                json={"pergunta": "Quais notas possuem erros?"},
+            )
+            assert resp_p1.status_code == 200
+            assert resp_p1.json()["em_cache"] is False
+            assert chamadas_llm == 1
+
+            # Executa reset completo
+            resp_reset = client.post("/api/sistema/resetar-banco")
+            assert resp_reset.status_code == 200
+            corpo_reset = resp_reset.json()
+            assert corpo_reset == {
+                "status": "ok",
+                "lotes_removidos": 1,
+                "recebidas_removidas": 3,
+            }
+
+            # Confirma tudo zerado (Aba 1, Aba 2, cursor NSU, logs e cache LRU)
+            assert client.get("/api/lotes").json()["total"] == 0
+            assert client.get("/api/acervo").json()["resultados"] == []
+            assert client.get("/api/recebidas").json()["total"] == 0
+            status_sefaz = client.get("/api/recebidas/status").json()
+            assert status_sefaz["cursor"]["ultimo_nsu"] == "000000000000000"
+            assert status_sefaz["ultimos_logs"] == []
+            assert obter_repositorio_lotes().obter(lote_id) is None
+
+            # Novo lote idêntico + mesma pergunta não deve vir do cache antigo
+            novo_lote_id = client.post("/api/lote/demo").json()["lote_id"]
+            resp_p2 = client.post(
+                f"/api/lote/{novo_lote_id}/perguntar",
+                json={"pergunta": "Quais notas possuem erros?"},
+            )
+            assert resp_p2.status_code == 200
+            assert resp_p2.json()["em_cache"] is False
+            assert chamadas_llm == 2
+        finally:
+            definir_servico_assistente(servico_orig)
+
+    def test_cli_resetar_banco_json_e_texto(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        caminho_db = tmp_path / "cli_reset.db"
+        repo = RepositorioDistDFeSQLite(caminho_db)
+        definir_repositorio_recebidas(repo)
+        try:
+            with TestClient(app) as tc:
+                assert tc.post("/api/lote/demo").status_code == 200
+                assert tc.post("/api/recebidas/demo").status_code == 200
+        finally:
+            definir_repositorio_recebidas(None)
+
+        # Executa CLI com --db e --json
+        codigo = cli.main(["resetar-banco", "--db", str(caminho_db), "--json"])
+        assert codigo == 0
+        saida_json = json.loads(capsys.readouterr().out)
+        assert saida_json["status"] == "ok"
+        assert saida_json["lotes_removidos"] == 1
+        assert saida_json["recebidas_removidas"] == 3
+        assert repo.listar_lotes_upload() == []
+        assert repo.listar_notas_recebidas() == []
+        assert repo.listar_logs_sync() == []
+
+        # Segunda execução em modo texto (banco já vazio)
+        codigo_txt = cli.main(["resetar-banco", "--db", str(caminho_db)])
+        assert codigo_txt == 0
+        saida_txt = capsys.readouterr().out
+        assert "Reset Completo do Banco SQLite Local" in saida_txt
+        assert "Lotes removidos     : 0" in saida_txt
+        assert "Recebidas removidas : 0" in saida_txt

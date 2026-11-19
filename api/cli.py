@@ -131,6 +131,27 @@ def criar_parser() -> argparse.ArgumentParser:
         help="Imprime na saída padrão o JSON estruturado (ResumoExecucaoSync).",
     )
 
+    parser_reset = subparsers.add_parser(
+        "resetar-banco",
+        help=(
+            "Zera completamente o banco SQLite local "
+            "(lotes importados, notas recebidas, cursores NSU e logs)."
+        ),
+    )
+    parser_reset.add_argument(
+        "--db",
+        dest="caminho_db",
+        default=None,
+        metavar="ARQUIVO.db",
+        help="Caminho do banco SQLite local (padrão: data/nfe_recebidas.db).",
+    )
+    parser_reset.add_argument(
+        "--json",
+        dest="saida_json",
+        action="store_true",
+        help="Imprime na saída padrão o resultado estruturado em JSON.",
+    )
+
     return parser
 
 
@@ -312,6 +333,29 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
     return 0
 
 
+def _executar_resetar_banco(args: argparse.Namespace) -> int:
+    repo = RepositorioDistDFeSQLite(args.caminho_db)
+    resultado = repo.resetar_banco_completo()
+    if args.saida_json:
+        payload = {
+            "status": "ok",
+            "caminho_db": str(repo.caminho_db),
+            "lotes_removidos": resultado["lotes_removidos"],
+            "recebidas_removidas": resultado["recebidas_removidas"],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print("=" * 64)
+        print(f"nfe-local v{__version__} — Reset Completo do Banco SQLite Local")
+        print("=" * 64)
+        print(f"Banco SQLite        : {repo.caminho_db}")
+        print(f"Lotes removidos     : {resultado['lotes_removidos']}")
+        print(f"Recebidas removidas : {resultado['recebidas_removidas']}")
+        print("Status              : Banco zerado e compactado (VACUUM).")
+        print("=" * 64)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Ponto de entrada principal da CLI."""
     parser = criar_parser()
@@ -323,6 +367,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _executar_servidor(args)
     if args.subcomando == "sincronizar-sefaz":
         return _executar_sincronizar_sefaz(args)
+    if args.subcomando == "resetar-banco":
+        return _executar_resetar_banco(args)
 
     parser.print_help()
     return 0
