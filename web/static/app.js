@@ -1201,7 +1201,7 @@
     }
   };
 
-  // --- Fase 2 & 3: Recebidas da SEFAZ + Cadastro Visual do Certificado A1 ---
+  // --- Fases 2-4: Buscar notas (SEFAZ e Portal Nacional) + Cadastro Visual do Certificado A1 ---
   const definirStatusRecebidas = (msg, erro = false) => {
     const el = document.getElementById("recebidas-sync-status");
     if (!el) return;
@@ -1232,7 +1232,7 @@
   };
 
   const mensagemUltimaSync = (log, origem) => {
-    if (!log) return "Nenhuma sincronização registrada.";
+    if (!log) return "Nenhuma busca registrada.";
     const quando = log.ts ? new Date(log.ts).toLocaleString("pt-BR") : "-";
     let txt = `Última execução (${quando}): `;
     const gravados = `${log.novos_docs} documento(s) gravado(s) em ${log.paginas} página(s)`;
@@ -1387,7 +1387,7 @@
           bannerBloqueio.classList.remove("hidden");
           bannerBloqueio.innerHTML = `
             ⛔ <strong>Trava obrigatória SEFAZ ativa (cStat 656 — Consumo Indevido):</strong>
-            aguarde ~${minRest} min (até ${escaparHtml(dtAte)}) antes de sincronizar novamente para não reiniciar o bloqueio de 1 hora na SEFAZ.
+            aguarde ~${minRest} min (até ${escaparHtml(dtAte)}) antes de buscar novamente para não reiniciar o bloqueio de 1 hora na SEFAZ.
           `;
           if (btnSync) btnSync.disabled = true;
         } else {
@@ -1624,7 +1624,7 @@
 
     if (notas.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10" style="text-align:center;" class="muted">Nenhuma nota encontrada para os filtros selecionados. Sincronize ou carregue a demonstração.</td></tr>';
+        '<tr><td colspan="10" style="text-align:center;" class="muted">Nenhuma nota encontrada para os filtros selecionados. Busque as notas ou carregue a demonstração.</td></tr>';
       return;
     }
 
@@ -1755,7 +1755,7 @@
         return { erro: true, texto: "NF-e: cadastre o certificado digital A1 (passo a passo acima)." };
       }
       if (!resp.ok) {
-        return { erro: true, texto: `NF-e: ${dados.detail || `falha na sincronização (HTTP ${resp.status}).`}` };
+        return { erro: true, texto: `NF-e: ${dados.detail || `falha na busca (HTTP ${resp.status}).`}` };
       }
       return {
         erro: false,
@@ -1775,7 +1775,7 @@
         return { erro: true, texto: "NFS-e: cadastre o certificado digital A1 (passo a passo acima)." };
       }
       if (!resp.ok) {
-        return { erro: true, texto: `NFS-e: ${dados.detail || `falha na sincronização (HTTP ${resp.status}).`}` };
+        return { erro: true, texto: `NFS-e: ${dados.detail || `falha na busca (HTTP ${resp.status}).`}` };
       }
       let txt = `NFS-e (ADN): ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s)`;
       const ign = Object.entries(dados.ignorados_por_tipo || {});
@@ -1868,7 +1868,7 @@
       : '<span class="badge badge-err">Atenção</span>';
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
-        <strong>🩺 Diagnóstico do ADN (somente leitura, nada foi gravado)</strong> ${selo}
+        <strong>🩺 Teste de conexão com o Portal Nacional (Diagnóstico do ADN: somente leitura, nada foi gravado)</strong> ${selo}
       </div>
       <p style="margin:0.5rem 0;">${escaparHtml(d.interpretacao || "")}</p>
       <table class="diag-table"><tbody>
@@ -1888,7 +1888,7 @@
       if (resp.status === 503) {
         box.classList.add("hidden");
         mostrarPassoACerto();
-        definirStatusRecebidas("Cadastre o certificado digital A1 para usar o diagnóstico (passo a passo acima).", true);
+        definirStatusRecebidas("Cadastre o certificado digital A1 para testar a conexão (passo a passo acima).", true);
         return;
       }
       if (!resp.ok) {
@@ -1982,7 +1982,7 @@
   const resetarBancoCompleto = async () => {
     const confirmado = window.confirm(
       "Zerar completamente o banco SQLite local?\n\n" +
-        "Isso apagará todos os lotes importados (Aba 1), todas as notas recebidas da SEFAZ (Aba 2), " +
+        "Isso apagará todos os lotes importados (Aba 1), todas as notas buscadas (aba Buscar notas), " +
         "cursores NSU e logs, deixando o sistema pronto para dados reais. " +
         "Seu Certificado Digital A1 configurado não será apagado."
     );

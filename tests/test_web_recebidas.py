@@ -395,6 +395,20 @@ class TestRotasRecebidasSEFAZ:
         assert "Buscar notas (SEFAZ e Portal Nacional)" in html
         assert "Recebidas da SEFAZ (DistDFe)" not in html
         assert ">🏛️ SEFAZ e ADN" not in html
+        # nomes antigos de botões não aparecem em nenhum texto da interface
+        raiz = Path(__file__).parent.parent
+        js = (raiz / "web" / "static" / "app.js").read_text(encoding="utf-8")
+        for antigo in (
+            "Sincronizar tudo",
+            "Sincronizar NF-e",
+            "Sincronizar NFS-e",
+            "Sincronizar com a SEFAZ",
+            "🩺 Diagnóstico do ADN",
+            "Recebidas da SEFAZ",
+        ):
+            assert antigo not in html, antigo
+            assert antigo not in js, antigo
+        assert "<strong>Buscar tudo</strong>" in html  # passo a passo sem certificado
         for rotulo in (
             "Buscar NF-e de produto (SEFAZ)",
             "Buscar NFS-e de serviço (Portal Nacional)",
@@ -408,7 +422,8 @@ class TestRotasRecebidasSEFAZ:
             "XMLs ilegíveis (ERRO_XML)",
             "Totais por tipo e por papel",
             "Valor total (autorizadas)",
-            "Diagnóstico do ADN",
+            "Testar conexão (Portal Nacional)",
+            "Diagnóstico do ADN: uma consulta de leitura",
             "Tudo (acervo + SEFAZ + ADN)",
             "Só emitidas",
             "Só tomadas",

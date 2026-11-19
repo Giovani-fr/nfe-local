@@ -16,8 +16,8 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | ![Tabela de notas](docs/prints/tabela-notas.png) | ![Painel gerencial](docs/prints/painel-gerencial.png) |
 | **Buscar notas (SEFAZ e Portal Nacional): NF-e de produto e NFS-e de serviço, com Origem e Papel** | **Escopo "Tudo" (acervo + SEFAZ + ADN)** |
 | ![Buscar notas (SEFAZ e Portal Nacional)](docs/prints/sefaz-adn.png) | ![Escopo Tudo](docs/prints/escopo-tudo.png) |
-| **Diagnóstico do ADN (somente leitura)** | **DANFE oficial (NF-e 55)** |
-| ![Diagnóstico do ADN](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
+| **Testar conexão (Portal Nacional) = Diagnóstico do ADN, somente leitura** | **DANFE oficial (NF-e 55)** |
+| ![Testar conexão (Portal Nacional)](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
 ![DANFSe v2.0 com QR Code](docs/prints/danfse.png)
 
@@ -92,7 +92,7 @@ A aba **Buscar notas (SEFAZ e Portal Nacional)** mostra o que foi buscado automa
    - Consulta SOAP 1.2 com mTLS usando Certificado Digital A1 (`.pfx`), descompacta lotes `<docZip>` (`base64 + gzip`), armazena no SQLite local e disponibiliza a aba **"🏛️ SEFAZ e ADN"** com filtros por emitente, período, faixa de valor, categoria e situação.
 7. **Sincronização de NFS-e pelo ADN Nacional (emitidas e tomadas — Fase 4):**
    - Busca, no mesmo fluxo, as NFS-e em que o CNPJ é **prestador, tomador ou intermediário**, com cursor de NSU próprio, repetição automática só em falha de conexão e diagnóstico somente leitura. Veja a seção **Fase 4** abaixo e `docs/adn.md`.
-8. **Visão única:** a aba **Buscar notas (SEFAZ e Portal Nacional)** (botões *Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* e *Diagnóstico do ADN*) e o escopo **Tudo** da primeira aba mostram tudo o que o CNPJ emitiu ou recebeu (produto, serviço e consumidor).
+8. **Visão única:** a aba **Buscar notas (SEFAZ e Portal Nacional)** (botões *Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* e *Testar conexão (Portal Nacional)*, que é o Diagnóstico do ADN) e o escopo **Tudo** da primeira aba mostram tudo o que o CNPJ emitiu ou recebeu (produto, serviço e consumidor).
 
 ---
 
@@ -146,7 +146,7 @@ fe_recebidas.db` (ou `NFE_DB_PATH`) | **Sem criptografia.** Contém as notas rec
 - **Sem DPAPI (Linux, macOS, Docker):** a senha **não é gravada em disco**. Defina `NFE_CERT_SENHA` no ambiente do processo; sem ela o certificado cadastrado não abre e o programa avisa.
 - **Limite da DPAPI:** protege contra cópia dos arquivos e outros usuários da máquina, não contra um programa malicioso rodando como você nem contra alguém logado na sua conta.
 - ⚠️ **Nunca deixe o certificado dentro de pastas sincronizadas** (OneDrive, Dropbox, Google Drive, iCloud). Elas enviam os arquivos para a nuvem e guardam versões antigas. A interface avisa quando detecta esse caso.
-- **Migração:** versões antigas gravavam `data/certificado/` dentro do projeto, com `senha.txt` em texto puro. Se essa pasta existir, a aba **Recebidas da SEFAZ** mostra o botão **"Mover e proteger agora"**: o certificado vai para a pasta segura, a senha é protegida e os arquivos antigos são sobrescritos e apagados. A senha nunca é impressa em tela nem em log. Atenção: se a pasta antiga já foi sincronizada, cópias podem existir no histórico de versões/lixeira da nuvem. Nesse caso, **troque o certificado** (revogue e emita outro) ou ao menos apague essas versões.
+- **Migração:** versões antigas gravavam `data/certificado/` dentro do projeto, com `senha.txt` em texto puro. Se essa pasta existir, a aba **Buscar notas (SEFAZ e Portal Nacional)** mostra o botão **"Mover e proteger agora"**: o certificado vai para a pasta segura, a senha é protegida e os arquivos antigos são sobrescritos e apagados. A senha nunca é impressa em tela nem em log. Atenção: se a pasta antiga já foi sincronizada, cópias podem existir no histórico de versões/lixeira da nuvem. Nesse caso, **troque o certificado** (revogue e emita outro) ou ao menos apague essas versões.
 
 ### 2. Regras Operacionais da SEFAZ Implementadas
 - **Sincronização Incremental por NSU (`ultNSU` / `maxNSU`):**
@@ -173,7 +173,7 @@ O **ADN** (Ambiente de Dados Nacional da NFS-e) distribui as NFS-e do Padrão Na
 ### Como testar a chamada real (passo a passo)
 
 1. **Cadastre o certificado A1** (aba **Buscar notas (SEFAZ e Portal Nacional)** → *Cadastrar / Trocar Certificado*, ou `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
-2. **Diagnóstico (não grava nada):** botão **🩺 Diagnóstico do ADN** ou `nfe-local sincronizar-adn --diagnostico --ambiente 2` (depois `--ambiente 1`). Ele faz **uma** consulta de leitura e mostra: URL base, CNPJ **mascarado**, validade do certificado, resultado do TLS (versão e cifrador), HTTP, `StatusProcessamento`, `TipoConsulta`, erros/alertas e a contagem de itens por tipo. Em falha de conexão, mostra a etapa, a exceção raiz, o código do sistema e o que fazer, sem URL com parâmetros, CNPJ, caminho do certificado, senha nem XML.
+2. **Diagnóstico (não grava nada):** botão **🩺 Testar conexão (Portal Nacional)** (o Diagnóstico do ADN) ou `nfe-local sincronizar-adn --diagnostico --ambiente 2` (depois `--ambiente 1`). Ele faz **uma** consulta de leitura e mostra: URL base, CNPJ **mascarado**, validade do certificado, resultado do TLS (versão e cifrador), HTTP, `StatusProcessamento`, `TipoConsulta`, erros/alertas e a contagem de itens por tipo. Em falha de conexão, mostra a etapa, a exceção raiz, o código do sistema e o que fazer, sem URL com parâmetros, CNPJ, caminho do certificado, senha nem XML.
 3. **Sincronização de uma página:** `nfe-local sincronizar-adn --max-paginas 1 --db <um banco de teste>`.
 4. **Sincronização completa:** `nfe-local sincronizar-adn` (ou **Buscar NFS-e de serviço (Portal Nacional)** / **Buscar tudo** no painel). Se parar por `LIMITE_PAGINAS`, rode de novo: continua do cursor.
 

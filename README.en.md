@@ -16,8 +16,8 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | ![Invoice table](docs/prints/tabela-notas.png) | ![Management dashboard](docs/prints/painel-gerencial.png) |
 | **Buscar notas (SEFAZ and Portal Nacional): product NF-e and service NFS-e, with Origin and Role** | **"Everything" scope (archive + SEFAZ + ADN)** |
 | ![Buscar notas (SEFAZ and Portal Nacional)](docs/prints/sefaz-adn.png) | ![Everything scope](docs/prints/escopo-tudo.png) |
-| **ADN diagnostic (read-only)** | **Official DANFE (NF-e 55)** |
-| ![ADN diagnostic](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
+| **Testar conexão (Portal Nacional) = ADN diagnostic, read-only** | **Official DANFE (NF-e 55)** |
+| ![Testar conexão (Portal Nacional)](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
 ![DANFSe v2.0 with QR Code](docs/prints/danfse.png)
 
@@ -92,7 +92,7 @@ The **Buscar notas (SEFAZ e Portal Nacional)** tab shows what was fetched automa
    - Performs SOAP 1.2 queries with mTLS using an ICP-Brasil A1 certificate (`.pfx`), decompresses `<docZip>` payloads (`base64 + gzip`), persists records in local SQLite, and provides the **"🏛️ SEFAZ e ADN"** tab filterable by issuer, date range, amount, category, and status.
 7. **NFS-e Synchronization via the National ADN (issued and received — Phase 4):**
    - Fetches, in the same flow, NFS-e where the CNPJ is **provider, taker or intermediary**, with its own NSU cursor, automatic retries only on connection failures and a read-only diagnostic. See the **Phase 4** section below and `docs/adn.md`.
-8. **Single view:** the **Buscar notas (SEFAZ e Portal Nacional)** tab (*Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* and *Diagnóstico do ADN* buttons) and the **Tudo** scope on the first tab show everything the CNPJ issued or received (product, service and consumer).
+8. **Single view:** the **Buscar notas (SEFAZ e Portal Nacional)** tab (*Buscar NF-e de produto (SEFAZ)*, *Buscar NFS-e de serviço (Portal Nacional)*, *Buscar tudo* and *Testar conexão (Portal Nacional)* buttons; the latter is the ADN diagnostic) and the **Tudo** scope on the first tab show everything the CNPJ issued or received (product, service and consumer).
 
 ---
 
@@ -171,7 +171,7 @@ The **ADN** (national NFS-e data environment) distributes the National Standard 
 ### How to test the real call (step by step)
 
 1. **Register the A1 certificate** (**Buscar notas (SEFAZ e Portal Nacional)** tab → *Cadastrar / Trocar Certificado*, or `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
-2. **Diagnostic (writes nothing):** the **🩺 Diagnóstico do ADN** button or `nfe-local sincronizar-adn --diagnostico --ambiente 2` (then `--ambiente 1`). It makes **one** read query and shows: base URL, **masked** CNPJ, certificate validity, TLS result (version and cipher), HTTP, `StatusProcessamento`, `TipoConsulta`, errors/alerts and the item count per type. On a connection failure it shows the stage, root exception, OS code and what to do, with no URL parameters, CNPJ, certificate path, password or XML.
+2. **Diagnostic (writes nothing):** the **🩺 Testar conexão (Portal Nacional)** button (the ADN diagnostic) or `nfe-local sincronizar-adn --diagnostico --ambiente 2` (then `--ambiente 1`). It makes **one** read query and shows: base URL, **masked** CNPJ, certificate validity, TLS result (version and cipher), HTTP, `StatusProcessamento`, `TipoConsulta`, errors/alerts and the item count per type. On a connection failure it shows the stage, root exception, OS code and what to do, with no URL parameters, CNPJ, certificate path, password or XML.
 3. **One-page sync:** `nfe-local sincronizar-adn --max-paginas 1 --db <a test database>`.
 4. **Full sync:** `nfe-local sincronizar-adn` (or **Buscar NFS-e de serviço (Portal Nacional)** / **Buscar tudo** in the panel). If it stops at `LIMITE_PAGINAS`, run again: it continues from the cursor.
 

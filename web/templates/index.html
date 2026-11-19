@@ -13,7 +13,7 @@
         <span class="brand-badge">NF-e / NFC-e / NFS-e</span>
         <div>
           <h1>nfe-local <span class="version-pill">v{{ version }}</span></h1>
-          <p class="subtitle">Acervo fiscal unificado, validador contábil em lote, DANFE / DANFSe e sincronização SEFAZ 100% local</p>
+          <p class="subtitle">Acervo fiscal unificado, validador contábil em lote, DANFE / DANFSe e busca de notas na SEFAZ e no Portal Nacional, 100% local</p>
         </div>
       </div>
       <div class="topbar-actions">
@@ -455,7 +455,7 @@
       </div>
     </div>
 
-    <!-- ABA 2: Recebidas da SEFAZ (NFeDistribuicaoDFe) -->
+    <!-- ABA 2: Buscar notas (SEFAZ e Portal Nacional) -->
     <div id="aba-recebidas" class="tab-panel hidden">
       <!-- Painel de Status e Gestão Visual do Certificado A1 e Cursor NSU -->
       <section class="card sefaz-status-panel">
@@ -477,8 +477,8 @@
             <button id="btn-sync-tudo" type="button" class="btn btn-gold" title="Busca a NF-e de produto na SEFAZ e depois a NFS-e de serviço no ADN">
               🔄 Buscar tudo
             </button>
-            <button id="btn-diag-adn" type="button" class="btn btn-secondary" title="Uma consulta de leitura ao ADN; não grava nada no banco nem altera o cursor">
-              🩺 Diagnóstico do ADN
+            <button id="btn-diag-adn" type="button" class="btn btn-secondary" title="Diagnóstico do ADN: uma consulta de leitura ao ADN (GET /DFe/0); não grava nada no banco nem altera o cursor">
+              🩺 Testar conexão (Portal Nacional)
             </button>
             <button id="btn-demo-recebidas" type="button" class="btn btn-secondary">
               🧪 Carregar Recebidas de Demonstração
@@ -598,7 +598,7 @@
             <li>Tenha em mãos o arquivo <code>.pfx</code> (ou <code>.p12</code>) do e-CNPJ A1 e a senha dele.</li>
             <li>Clique em <strong>⚙️ Cadastrar / Trocar Certificado (.pfx)</strong> acima e escolha o arquivo.</li>
             <li>Informe a senha, escolha o ambiente (produção restrita para testar, produção para valer) e clique em <strong>Validar e Salvar</strong>.</li>
-            <li>Volte aqui e clique em <strong>🩺 Diagnóstico do ADN</strong> para testar a conexão sem gravar nada; depois em <strong>Sincronizar tudo</strong>.</li>
+            <li>Volte aqui e clique em <strong>🩺 Testar conexão (Portal Nacional)</strong> para testar sem gravar nada; depois em <strong>Buscar tudo</strong>.</li>
           </ol>
           <span class="muted">Sem certificado você ainda pode usar <strong>🧪 Carregar Recebidas de Demonstração</strong> (dados fictícios) e enviar XMLs na primeira aba.</span>
         </div>
