@@ -257,7 +257,6 @@ def main() -> int:
             Path.home().name,
             str(tmp),
             str(RAIZ),
-            "Giovani",
         ]
 
         with sync_playwright() as pw:
