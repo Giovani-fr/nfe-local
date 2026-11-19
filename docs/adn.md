@@ -152,3 +152,20 @@ o banco, não altera o cursor e não imprime XML, senha nem bytes do `.pfx`. Ace
 mascarados) e a contagem de itens por `TipoDocumento`. Saída 0 quando a consulta funcionou
 (documentos ou fila vazia) e 1 nos demais casos. Use-o para separar problema de URL, de TLS/certificado
 e de CNPJ de consulta antes de sincronizar.
+
+### Falhas de conexão no diagnóstico
+
+Se a conexão falhar antes de haver resposta HTTP, o diagnóstico percorre a cadeia de causas da
+exceção (`__cause__`, `__context__`, `.reason` e `args`) e mostra, **sem URL com parâmetros, CNPJ,
+caminho do certificado, senha nem mensagens brutas**: a etapa (resolução de nome, conexão TCP,
+handshake TLS ou leitura da resposta), a classe da exceção raiz e a cadeia de classes, o código do
+sistema operacional (`WinError`/`errno`), o motivo TLS quando for um código curto, se o servidor
+encerrou a conexão (reset, `RemoteDisconnected`), se houve tempo esgotado e uma orientação em
+português. A etapa "handshake TLS (provável)" aparece quando houve reset sem resposta HTTP: a
+biblioteca não distingue reset no handshake de reset logo depois; com `RemoteDisconnected` o
+handshake completou (a requisição foi enviada). Quando há resposta, mostra a versão do TLS e o
+cifrador negociados (melhor esforço; pode não estar disponível).
+
+`--tentativas N` (1 a 3, padrão 1) repete só em falha de conexão, com espera de 2 s, e informa
+quantas falharam; `--timeout SEGUNDOS` (padrão 30) vale para cada chamada, inclusive na
+sincronização.
