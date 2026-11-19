@@ -1,8 +1,8 @@
-# nfe-local — Visualizador, Validador e Analisador Fiscal em Lote (+ `NFeDistribuicaoDFe`)
+# nfe-local — Visualizador, Validador e Analisador Fiscal em Lote (+ SEFAZ e ADN)
 
 > 🇺🇸 **Read this in English:** [README.en.md](README.en.md)
 
-Ferramenta **100% local, determinística e sem custo obrigatório de API** para leitura, validação fiscal/financeira, análise gerencial em lote, geração de espelhos imprimíveis (**DANFE** e **DANFSe**) e sincronização de notas emitidas contra o CNPJ da empresa na SEFAZ (**`NFeDistribuicaoDFe`**):
+Ferramenta **100% local, determinística e sem custo obrigatório de API** para leitura, validação fiscal/financeira, análise gerencial em lote, geração de espelhos imprimíveis (**DANFE** e **DANFSe**) e busca automática das notas do CNPJ da empresa: **NF-e pela SEFAZ** (**`NFeDistribuicaoDFe`**) e **NFS-e pelo ADN Nacional** (emitidas e tomadas):
 - **NF-e** (Modelo 55 — incluindo suporte antecipado ao **CNPJ Alfanumérico da NT 2014.002 v1.40** e **Reforma Tributária IBS/CBS**).
 - **NFC-e** (Modelo 65 — varejo e consumidor final).
 - **NFS-e** (exclusivamente no **Padrão Nacional** — `sped.fazenda.gov.br/nfse` e **DANFSe NT 008/2026**).
@@ -14,12 +14,29 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | Tabela de notas (ordenável, paginada) | Resumo & impostos |
 | :---: | :---: |
 | ![Tabela de notas](docs/prints/tabela-notas.png) | ![Painel gerencial](docs/prints/painel-gerencial.png) |
-| **Recebidas da SEFAZ (DistDFe)** | **DANFE oficial (NF-e 55)** |
-| ![Recebidas da SEFAZ](docs/prints/recebidas-sefaz.png) | ![DANFE](docs/prints/danfe.png) |
+| **SEFAZ e ADN (NF-e e NFS-e, com Origem e Papel)** | **Escopo "Tudo" (acervo + SEFAZ + ADN)** |
+| ![SEFAZ e ADN](docs/prints/sefaz-adn.png) | ![Escopo Tudo](docs/prints/escopo-tudo.png) |
+| **Diagnóstico do ADN (somente leitura)** | **DANFE oficial (NF-e 55)** |
+| ![Diagnóstico do ADN](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
 ![DANFSe v2.0 com QR Code](docs/prints/danfse.png)
 
 > Todas as telas usam as fixtures fictícias de `tests/fixtures/` (empresas e CNPJs inventados); nenhum dado real aparece.
+
+---
+
+## Escopo: o que cada fonte traz
+
+| Documento | Como entra | Papel do seu CNPJ | Observação |
+| :--- | :--- | :--- | :--- |
+| **NF-e de produto (modelo 55)** | **SEFAZ** (`NFeDistribuicaoDFe`, busca automática) ou upload | O que a SEFAZ distribui ao CNPJ (em geral notas **destinadas/recebidas**; o resumo `resNFe` exige manifestação para liberar o XML) | Este projeto **não confirmou** que o `NFeDistribuicaoDFe` entregue as NF-e **emitidas pelo próprio CNPJ**; para essas, use upload. A coluna **Papel** mostra o que de fato veio. |
+| **NFS-e emitidas** (CNPJ como prestador) | **ADN Nacional** (busca automática) ou upload | Emitida | Somente NFS-e no Padrão Nacional. |
+| **NFS-e tomadas** (CNPJ como tomador) | **ADN Nacional** ou upload | Recebida | No mesmo fluxo e na mesma consulta das emitidas. |
+| **NFS-e com o CNPJ como intermediário** | **ADN Nacional** ou upload | Intermediária | |
+| **NFC-e (modelo 65)** | **Somente upload** | — | Nem a SEFAZ nem o ADN são consultados para NFC-e. |
+| **Qualquer outro XML** (evento avulso, NFS-e municipal legada etc.) | **Somente upload** | — | NFS-e de layout municipal legado (ABRASF etc.) é rejeitada com alerta. |
+
+A aba **SEFAZ e ADN** mostra o que foi buscado automaticamente (Tipo, Origem, Papel, situação, espelho e XML). O escopo **"Tudo (acervo + SEFAZ + ADN)"**, na primeira aba, soma uploads, SEFAZ e ADN **sem duplicar chaves** (em chave repetida vale o upload) e os KPIs e o resumo contam NF-e, NFC-e e NFS-e. As notas do SEFAZ/ADN entram nessa visão sem revalidação e **sem itens e impostos por item** (só os totais).
 
 ---
 
@@ -38,6 +55,7 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 | **Fase 2 — Busca Automática SEFAZ (`NFeDistribuicaoDFe` + Certificado A1 + SQLite)** | ✅ Pronto | Validado com certificados X.509/PKCS#12 sintéticos em memória, envelopes SOAP 1.2 (`cStat 138`, `137` e `656`), trava de 1h contra bloqueio `656` e mais de 200 testes automatizados. |
 | **Fase 3 — Histórico Persistente, Acervo Unificado e Gestão Visual do Certificado A1** | ✅ Pronto | Todos os lotes enviados persistem no SQLite (`GET /api/lotes` e `GET /api/acervo` deduplicado), com cadastro visual de `.pfx` + senha + UF + ambiente na interface web sem depender de edição manual de `.env`. |
 | **Escala (15.000+ notas), paginação, ordenação clicável e layouts oficiais** | ✅ Pronto | Listagem e resumo do acervo **sem ler nem descompactar** o `xml_gzip` do SQLite (leitura sob demanda só ao abrir detalhe, DANFE/DANFSe ou baixar XML, com índice na chave), tabelas paginadas (`50 / 100 / 250 / Todas`) e ordenáveis, DANFE/DANFSe v2.0 oficiais. Limites de extração de ZIP elevados para 50.000 arquivos / 1 GB (ainda limitados contra *zip bomb*). |
+| **Fase 4 — NFS-e pelo ADN Nacional (emitidas e tomadas) e visão única** | ⚠️ Validado em parte | **Validado:** respostas simuladas (testes automatizados, sem rede); em **19/11/2026**, o diagnóstico real em **produção restrita e em produção** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sincronização de **uma página** em produção trouxe **50 NFS-e novas** (papéis tomador e intermediário, sem erro de processamento). Houve falhas de conexão intermitentes, hoje tratadas com repetição automática. **Não validado:** a sincronização **completa** (todas as páginas) em produção. |
 
 ---
 
@@ -62,16 +80,19 @@ Seus arquivos XML e seu certificado digital nunca saem da sua infraestrutura: to
 5. **Resumo Gerencial e Exportação Contábil (CSV e XLSX):**
    - Consolida totais por **Emitente/Prestador**, por **Imposto** (`ICMS`, `ICMS-ST`, `IPI`, `PIS`, `COFINS`, `ISS`, `Retenções`, `IBS/CBS`) e por **Período** (`YYYY-MM`).
    - Exporta CSV (UTF-8 com BOM para abrir direto no Excel em português) e planilha **XLSX com 4 abas** (`Notas`, `Itens`, `Resumo` e `Alertas`).
-6. **Sincronização de Notas Emitidas Contra o CNPJ (`NFeDistribuicaoDFe` — Fase 2):**
-   - Consulta SOAP 1.2 com mTLS usando Certificado Digital A1 (`.pfx`), descompacta lotes `<docZip>` (`base64 + gzip`), armazena no SQLite local e disponibiliza a aba **"🏛️ Recebidas da SEFAZ (DistDFe)"** com filtros por emitente, período, faixa de valor, categoria e situação.
+6. **Sincronização de NF-e pela SEFAZ (`NFeDistribuicaoDFe` — Fase 2):**
+   - Consulta SOAP 1.2 com mTLS usando Certificado Digital A1 (`.pfx`), descompacta lotes `<docZip>` (`base64 + gzip`), armazena no SQLite local e disponibiliza a aba **"🏛️ SEFAZ e ADN"** com filtros por emitente, período, faixa de valor, categoria e situação.
+7. **Sincronização de NFS-e pelo ADN Nacional (emitidas e tomadas — Fase 4):**
+   - Busca, no mesmo fluxo, as NFS-e em que o CNPJ é **prestador, tomador ou intermediário**, com cursor de NSU próprio, repetição automática só em falha de conexão e diagnóstico somente leitura. Veja a seção **Fase 4** abaixo e `docs/adn.md`.
+8. **Visão única:** a aba **SEFAZ e ADN** (botões *Sincronizar NF-e*, *Sincronizar NFS-e*, *Sincronizar tudo* e *Diagnóstico do ADN*) e o escopo **Tudo** da primeira aba mostram tudo o que o CNPJ emitiu ou recebeu (produto, serviço e consumidor).
 
 ---
 
-## Fase 2: Notas Emitidas Contra o CNPJ (`NFeDistribuicaoDFe`) e Manuseio Seguro do Certificado A1
+## Fase 2: NF-e pela SEFAZ (`NFeDistribuicaoDFe`) e Manuseio Seguro do Certificado A1
 
 ### 1. Segurança do Certificado Digital e-CNPJ A1 (`.pfx`)
 - **Cadastro Visual na Interface Web ou via Variáveis de Ambiente (`.env`):**
-  - Pela interface web (aba **🏛️ Recebidas da SEFAZ** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`certificado.pfx` na pasta segura descrita em **Onde ficam o certificado e a senha**, fora do projeto).
+  - Pela interface web (aba **🏛️ SEFAZ e ADN** -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), você pode selecionar o arquivo `.pfx`/`.p12`, digitar a senha e escolher a UF (`cUFAutor`) e o Ambiente (`Homologação` ou `Produção`). O sistema valida o par `.pfx + senha` em memória via `cryptography` antes de salvar com nome fixo seguro (`certificado.pfx` na pasta segura descrita em **Onde ficam o certificado e a senha**, fora do projeto).
   - Alternativamente, para servidores headless ou automação via CLI/Docker, configure via `.env`:
   ```ini
   NFE_CERT_PATH=C:/caminho/seguro/empresa_a1.pfx
@@ -130,6 +151,49 @@ fe_recebidas.db` (ou `NFE_DB_PATH`) | **Sem criptografia.** Contém as notas rec
   - Quando o `<procNFe>` chega em um NSU posterior, o registro no SQLite sofre **upgrade automático** para `NFE_COMPLETA` (com trava anti-downgrade caso um resumo antigo seja reprocessado). Eventos de cancelamento (`110111` / `110112`) atualizam automaticamente a situação da nota para `CANCELADA`.
 - **Janela de Retenção de ~90 Dias da SEFAZ:**
   - O WebService `NFeDistribuicaoDFe` disponibiliza documentos emitidos nos últimos ~90 dias. Recomenda-se sincronizar periodicamente e manter backup do arquivo `data/nfe_recebidas.db`.
+
+---
+
+## Fase 4: NFS-e pelo ADN Nacional (emitidas e tomadas)
+
+O **ADN** (Ambiente de Dados Nacional da NFS-e) distribui as NFS-e do Padrão Nacional ligadas ao seu CNPJ. O cliente (`sefaz/adn.py`) usa o **mesmo certificado A1** já cadastrado e busca, **no mesmo fluxo**, as notas **emitidas** (CNPJ como prestador), **tomadas** (CNPJ como tomador) e as em que o CNPJ é **intermediário**. O contrato confirmado no Swagger oficial está resumido em [`docs/adn.md`](docs/adn.md).
+
+- **`cnpjConsulta` é obrigatório na prática.** O Swagger o descreve como opcional, mas em uso real (nov/2026) a consulta sem ele recebeu HTTP 400 `REJEICAO` com `TipoConsulta InscricaoCertificado` e lista de erros **vazia**; com ele, HTTP 200 (`TipoConsulta CnpjBase`). O programa **sempre** envia os 14 caracteres do CNPJ do certificado (ou de `NFE_CNPJ_CONSULTA`).
+- **Ambientes:** produção restrita (ambiente 2) e produção (ambiente 1). A URL base é configurável (`NFE_ADN_URL_BASE` ou `--url-base`); o Swagger de produção não foi baixado, então o contrato de produção foi assumido igual ao da produção restrita (o diagnóstico em produção, em uso real, foi consistente com isso).
+- **Sem ação do usuário, nada roda:** a sincronização só acontece ao clicar no botão ou ao rodar o comando; não há laço automático.
+
+### Como testar a chamada real (passo a passo)
+
+1. **Cadastre o certificado A1** (aba **SEFAZ e ADN** → *Cadastrar / Trocar Certificado*, ou `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
+2. **Diagnóstico (não grava nada):** botão **🩺 Diagnóstico do ADN** ou `nfe-local sincronizar-adn --diagnostico --ambiente 2` (depois `--ambiente 1`). Ele faz **uma** consulta de leitura e mostra: URL base, CNPJ **mascarado**, validade do certificado, resultado do TLS (versão e cifrador), HTTP, `StatusProcessamento`, `TipoConsulta`, erros/alertas e a contagem de itens por tipo. Em falha de conexão, mostra a etapa, a exceção raiz, o código do sistema e o que fazer, sem URL com parâmetros, CNPJ, caminho do certificado, senha nem XML.
+3. **Sincronização de uma página:** `nfe-local sincronizar-adn --max-paginas 1 --db <um banco de teste>`.
+4. **Sincronização completa:** `nfe-local sincronizar-adn` (ou **Sincronizar NFS-e (ADN)** / **Sincronizar tudo** no painel). Se parar por `LIMITE_PAGINAS`, rode de novo: continua do cursor.
+
+> **O que já foi (e o que não foi) testado em uso real:** diagnóstico nos dois ambientes e a sincronização de **uma página** em produção (50 NFS-e novas, sem erro de processamento). A sincronização **completa** em produção **ainda não foi confirmada**.
+
+### Política de espera e de repetição
+
+O Swagger do ADN **não documenta limite de uso, bloqueio nem `Retry-After`**. Os intervalos abaixo são **escolhas deste projeto**, não regras do ADN.
+
+| Situação | O que o programa faz |
+| :--- | :--- |
+| Falha de **conexão** (reset, `RemoteDisconnected`, tempo esgotado, falha de nome, TLS) | Repete a **mesma consulta** (`GET`, idempotente): padrão **3 tentativas**, com espera crescente de **2 s, 5 s e 10 s**. Configurável por `--tentativas N` (1 a 5) ou `NFE_ADN_TENTATIVAS`. Esgotadas, encerra com `ERRO` mantendo o que já foi gravado; a próxima execução continua do cursor. |
+| Resposta HTTP válida (200, 400, 403, 404 etc.) | **Não repete.** |
+| `404` | Só é "fila zerada" se o corpo for JSON com `NENHUM_DOCUMENTO_LOCALIZADO` (ou `E2220`/`E2230`). Qualquer outro `404` vira erro de endereço (confira `NFE_ADN_URL_BASE`). |
+| `429` | **Não repete**; respeita `Retry-After` (ou, sem ele, espera 1 hora) sem tocar a rede. |
+| `5xx` | **Não repete**; espera 10 minutos (ou `Retry-After`) sem tocar a rede. |
+| Certificado inválido ou vencido | **Não repete.** |
+| Entre páginas | Espera de 1 s; no máximo 20 páginas por execução (`--max-paginas`). |
+
+A mensagem de falha de conexão diz primeiro que falhas intermitentes do ADN são comuns, quantas vezes o programa tentou e que vale tentar de novo em alguns minutos; só depois sugere conferir rede e certificado. O `sync_log` registra, por execução, a origem (`NFE` ou `NFSE`), o total de tentativas e, para cada falha, só a página, a tentativa, a etapa e a classe do erro.
+
+### Papel do CNPJ na nota (Emitida, Recebida, Intermediária)
+
+O papel é calculado **comparando o CNPJ consultado** (o do certificado, ou `NFE_CNPJ_CONSULTA`) com o prestador, o tomador e o intermediário da NFS-e (e com o emitente e o destinatário da NF-e), com suporte a CNPJ alfanumérico. A tabela mostra o critério ao passar o mouse sobre **Papel**. Sem CNPJ de referência, a coluna mostra "—". Há filtros rápidos **Só emitidas** e **Só tomadas / recebidas**.
+
+### Como os dados são guardados
+
+Reaproveita a tabela `notas_recebidas`, com as colunas novas `origem` (`DISTDFE` ou `ADN`) e `papel`. A migração do banco **só acrescenta** colunas e índices (nunca apaga nem reescreve linhas) e é idempotente. A deduplicação é pela chave de acesso; um evento tardio (por exemplo, cancelamento) atualiza só a situação e nunca rebaixa uma nota completa. O cursor do ADN é **próprio** (`adn_cursor`, NSU inteiro), independente do cursor do `NFeDistribuicaoDFe`.
 
 ---
 
@@ -200,7 +264,7 @@ Detalhes completos da metodologia e reprodução estão em [`docs/benchmark.md`]
    - Em seguida cria um ambiente virtual isolado fora do OneDrive (`%USERPROFILE%\venvs\nfe-local`), instala as dependências, roda `pip install -e .` (registra o comando `nfe-local` na pasta `Scripts` desse ambiente) e cria o atalho **"Visualizador NF-e Local"** na Área de Trabalho. Tudo fica registrado em `instalar.log`.
 2. Dê dois cliques no atalho da Área de Trabalho ou em **`iniciar.bat`**.
    - O navegador abrirá automaticamente em `http://127.0.0.1:8765`.
-   - Na aba **Analisador de Lotes**, clique em **"Carregar Lote de Demonstração"**; na aba **Recebidas da SEFAZ (DistDFe)**, clique em **"🧪 Carregar Recebidas de Demonstração"** para testar os filtros sem precisar de certificado A1 real.
+   - Na aba **Analisador de Lotes**, clique em **"Carregar Lote de Demonstração"**; na aba **SEFAZ e ADN**, clique em **"🧪 Carregar Recebidas de Demonstração"** para testar os filtros sem precisar de certificado A1 real.
 
 ### Opção 2: Via Linha de Comando (CLI)
 
@@ -218,6 +282,11 @@ nfe-local sincronizar-sefaz --demo --json
 
 # Sincronizar notas recebidas reais na SEFAZ (requer NFE_CERT_PATH e NFE_CERT_SENHA)
 nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
+
+# NFS-e pelo ADN: diagnóstico somente leitura (não grava nada), depois uma página e depois tudo
+nfe-local sincronizar-adn --diagnostico --ambiente 2
+nfe-local sincronizar-adn --max-paginas 1 --db data/teste.db
+nfe-local sincronizar-adn --demo --json   # NFS-e sintéticas, sem rede
 
 # Iniciar o servidor web manualmente
 nfe-local servidor --host 127.0.0.1 --port 8765
@@ -253,12 +322,13 @@ docker run --rm -p 127.0.0.1:8765:8765 nfe-local:latest
 flowchart LR
     A["Entrada Local (.xml / .zip)"] --> B["Extrator Seguro (Anti-ZipBomb)"]
     S["SEFAZ NFeDistribuicaoDFe (SOAP 1.2 mTLS)"] --> Z["Descompactador docZip (Base64 + GZIP)"]
+    N["ADN Nacional NFS-e (REST mTLS)"] --> Z
     Z --> C["Parser lxml Anti-XXE (resolve_entities=False)"]
     B --> C
     C --> D["Detector Automático (NF-e 55 / NFC-e 65 / NFS-e / Resumo / Evento)"]
     D --> E["Modelos Pydantic v2 (Valores em Decimal)"]
     E --> F["Motor de Validadores (Chave, CNPJ Alfanumérico, Soma vProd/vNF, Lote)"]
-    F --> DB["SQLite Local (dfe_cursor / notas_recebidas / sync_log)"]
+    F --> DB["SQLite Local (dfe_cursor / adn_cursor / notas_recebidas / sync_log)"]
     F --> G["Agregador O(1) (ResumoLote)"]
     F --> H["Espelhos A4 (DANFE Code 128 SVG / DANFSe NT 008/2026)"]
     G --> I["Exportador CSV (BOM) e XLSX 4 Abas (Anti-Formula-Injection)"]
@@ -274,6 +344,10 @@ flowchart LR
    - Para Nota Fiscal de Serviço Eletrônica (NFS-e), o sistema suporta **exclusivamente o Padrão Nacional** (`http://www.sped.fazenda.gov.br/nfse`). Layouts municipais proprietários ou legados (como ABRASF, Ginfes, Betha etc.) são rejeitados com alerta explícito, pois estão em processo de descontinuação nacional.
 3. **Certificados A3 (Token USB / Smartcard) Não Suportados:**
    - O módulo `NFeDistribuicaoDFe` suporta exclusivamente **Certificado Digital A1 (`.pfx` / PKCS#12)** lido em memória. Certificados A3 em hardware criptográfico via PKCS#11 não fazem parte do escopo.
+4. **ADN (NFS-e): o que ainda não foi comprovado ou não é suportado:**
+   - A sincronização **completa** em produção ainda não foi confirmada (só o diagnóstico e uma página). O Swagger de produção não foi baixado. A consulta é do **CNPJ do certificado** (`cnpjConsulta`; procuração e `cpfConsulta` não foram implementados nem testados).
+   - Na visão **Tudo**, as notas do SEFAZ/ADN entram sem revalidação e sem itens/impostos por item.
+   - O `NFeDistribuicaoDFe` não é a fonte para NFC-e; para NF-e **emitidas pelo próprio CNPJ** a entrega pela SEFAZ não foi confirmada: use upload.
 
 ---
 
@@ -309,6 +383,25 @@ Nas tarefas 19 a 25 **não** houve uma falha concreta apanhada em revisão: a ta
 | **23. Polimento e Reset do Banco** — Tabela sem rolagem horizontal, `resetar-banco` e blindagem do `.gitignore`. | Um arquivo fiscal ou planilha gerada na pasta do projeto poderia ser versionado por acidente em repositório público. | `.gitignore` bloqueia `*.xml`/`*.zip`/`*.csv`/`*.xlsx` fora de `tests/fixtures/`; o reset existe na API, na CLI e na interface (a CLI não pede confirmação). |
 | **24. Ordenação e Layouts Oficiais** — Ordenação clicável e DANFE/DANFSe fiéis ao padrão oficial. | Montar o espelho só a partir do modelo normalizado perde campos que não cabem em `DocumentoFiscal` (transportador, Código ANTT, DPS, domínios oficiais). | As rotas de espelho passam o `xml_bytes` bruto ao renderizador, com *fallback* para o `DocumentoFiscal`; a ordenação distingue número, data e texto. |
 | **25. QR Code, Lazy Load e Paginação** — QR Code no DANFSe v2.0 e escala para 15.000+ notas. | Listar o acervo descompactando o `xml_gzip` de cada nota estoura memória/tempo, e renderizar milhares de linhas trava o navegador. | `obter_acervo_unificado(incluir_xmls_brutos=False)` não toca no XML; índice `idx_lotes_itens_chave` + leitura pontual por nota; DOM só com a página ativa; QR Code em SVG puro (`qrcode`, sem Pillow). |
+
+---
+
+### Decisões de projeto e riscos considerados (tarefa 27 — ADN e visão única)
+
+Nesta tabela, **"Tipo"** separa o que foi só **decisão de projeto** do que foi **observado em uso real** e do que foi **correção de documentação**. Nada aqui é apresentado como bug de código encontrado em revisão se não foi.
+
+| Tema | O que foi decidido ou feito | Por quê | Tipo |
+| :--- | :--- | :--- | :--- |
+| `cnpjConsulta` | Sempre enviado, com os 14 caracteres do CNPJ. | O Swagger o descreve como opcional, mas sem ele a consulta real recebeu HTTP 400 sem detalhes. | **Observado em uso real** |
+| `404` do ADN | Só é "fila zerada" com corpo JSON esperado; senão, erro de endereço. | Com a URL base errada, um `404` qualquer viraria "sem notas novas" em silêncio. | Decisão preventiva |
+| Cursor do ADN | Cursor próprio (`adn_cursor`, NSU inteiro). | O NSU do ADN é `int64`; o do `NFeDistribuicaoDFe` tem 15 dígitos e vale para outro serviço. | Decisão de projeto |
+| Banco existente (15 mil notas) | Migração só **acrescenta** colunas e índices; testada com banco sintético no formato antigo. | Nunca apagar nem reescrever linhas de um banco real. | Decisão de projeto |
+| Repetição em falha de conexão | 3 tentativas (2 s, 5 s, 10 s) só para falhas de **conexão**; nunca para resposta HTTP, `429`, `5xx` ou certificado. | Falhas intermitentes (`RemoteDisconnected`) apareceram na sincronização real, e a consulta `GET` é idempotente. | **Observado em uso real** |
+| Intervalos de espera | `429` espera `Retry-After` ou 1 h; `5xx` espera 10 min. | O Swagger não documenta limite de uso nem bloqueio; os valores são conservadores e **escolha do projeto**. | Decisão de projeto |
+| Papel Emitida/Recebida | Comparação do CNPJ consultado com as partes da nota; sem referência, "—". | O papel não vem pronto do ADN; calcular na leitura evita regravar linhas antigas. | Decisão de projeto |
+| Demonstração | Carrega as NFS-e sintéticas **sem tocar** no cursor nem no `sync_log`. | Clicar em "demo" num banco real não pode atrapalhar a sincronização verdadeira. | Decisão de projeto |
+| Visão "Tudo" | Soma uploads, SEFAZ e ADN sem ler XML (só colunas); sem itens/impostos das notas buscadas. | Reprocessar 15 mil XMLs a cada clique seria lento. | Decisão de projeto (limitação assumida) |
+| Arquivo temporário do mTLS | O `requests-pkcs12` grava por instantes um `.pem` temporário com a chave cifrada. | A documentação dizia que nada era gravado em disco; foi corrigida (tarefa 28 avalia eliminar o arquivo). | **Correção de documentação** |
 
 ---
 

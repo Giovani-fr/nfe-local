@@ -70,7 +70,9 @@ class TestInfraestruturaEDocumentacao:
             for nome in (
                 "tabela-notas.png",
                 "painel-gerencial.png",
-                "recebidas-sefaz.png",
+                "sefaz-adn.png",
+                "escopo-tudo.png",
+                "diagnostico-adn.png",
                 "danfe.png",
                 "danfse.png",
             )
@@ -101,17 +103,47 @@ class TestInfraestruturaEDocumentacao:
         assert "2.16.76.1.3.3" in txt_en
         assert "16–18" in txt_en
 
-    def test_backlog_completo_com_todas_as_25_tarefas_concluidas(self) -> None:
+    def test_readmes_escopo_adn_estado_validado_e_imagens_existentes(self) -> None:
+        import re
+
+        for nome in ("README.md", "README.en.md"):
+            txt = (RAIZ_PROJETO / nome).read_text(encoding="utf-8")
+            # toda imagem referenciada existe (e a antiga, removida, não é mais citada)
+            for ref in re.findall(r"\]\((docs/prints/[^)]+)\)", txt):
+                assert (RAIZ_PROJETO / ref).is_file(), f"{nome}: imagem ausente {ref}"
+            assert "recebidas-sefaz.png" not in txt
+            for termo in (
+                "ADN",
+                "sincronizar-adn",
+                "--diagnostico",
+                "--max-paginas 1",
+                "cnpjConsulta",
+                "NFE_ADN_TENTATIVAS",
+                "docs/adn.md",
+                "tarefa 27" if nome == "README.md" else "task 27",
+            ):
+                assert termo in txt, f"{nome}: falta '{termo}'"
+            assert "NFC-e" in txt
+            # a tabela de escopo e a ressalva sobre a sincronização completa
+            assert ("Somente upload" in txt) or ("Upload only" in txt)
+            assert ("ainda não foi confirmada" in txt) or ("not confirmed yet" in txt)
+            assert "Notas Emitidas Contra o CNPJ" not in txt
+
+    def test_backlog_tarefas_1_a_25_e_27_concluidas_e_28_aberta(self) -> None:
         backlog_md = (RAIZ_PROJETO / "docs" / "BACKLOG.md").read_text(encoding="utf-8")
         linhas = [linha.strip() for linha in backlog_md.splitlines()]
-        for numero in range(1, 26):
+        for numero in (*range(1, 26), 27):
             assert any(linha.startswith(f"- [x] **{numero}.") for linha in linhas), (
                 f"Tarefa {numero} do backlog não está concluída."
             )
-        assert not any(
-            linha.startswith("- [ ] **") and int(linha.split("**")[1].split(".")[0]) <= 25
+        # a tarefa 28 (avaliar mTLS sem arquivo temporário) continua aberta de propósito
+        assert any(linha.startswith("- [ ] **28.") for linha in linhas)
+        abertas = [
+            int(linha.split("**")[1].split(".")[0])
             for linha in linhas
-        )
+            if linha.startswith("- [ ] **")
+        ]
+        assert abertas == [28]
 
 
 class TestBenchmarkLote:

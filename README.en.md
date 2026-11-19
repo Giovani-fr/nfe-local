@@ -1,8 +1,8 @@
-# nfe-local — Local Brazilian Electronic Invoice Viewer, Validator & Batch Analyzer (+ `NFeDistribuicaoDFe`)
+# nfe-local — Local Brazilian Electronic Invoice Viewer, Validator & Batch Analyzer (+ SEFAZ and ADN)
 
 > 🇧🇷 **Leia em Português:** [README.md](README.md)
 
-A **100% local, deterministic, zero-mandatory-API-cost** tool for parsing, validating, batch-analyzing, rendering printable HTML mirrors (**DANFE** and **DANFSe**), and synchronizing inbound electronic invoices issued against a company's CNPJ via SEFAZ (**`NFeDistribuicaoDFe`**):
+A **100% local, deterministic, zero-mandatory-API-cost** tool for parsing, validating, batch-analyzing, rendering printable HTML mirrors (**DANFE** and **DANFSe**), and automatically fetching the company's invoices: **product NF-e via SEFAZ** (**`NFeDistribuicaoDFe`**) and **NFS-e via the national ADN** (issued and received):
 - **NF-e** (Model 55 — including early support for **Alphanumeric CNPJ under NT 2014.002 v1.40** and **Tax Reform IBS/CBS**).
 - **NFC-e** (Model 65 — retail/consumer electronic invoice).
 - **NFS-e** (exclusively the **National Standard** — `sped.fazenda.gov.br/nfse` and **DANFSe NT 008/2026**).
@@ -14,12 +14,29 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | Invoice table (sortable, paginated) | Summary & taxes |
 | :---: | :---: |
 | ![Invoice table](docs/prints/tabela-notas.png) | ![Management dashboard](docs/prints/painel-gerencial.png) |
-| **Inbound from SEFAZ (DistDFe)** | **Official DANFE (NF-e 55)** |
-| ![Inbound from SEFAZ](docs/prints/recebidas-sefaz.png) | ![DANFE](docs/prints/danfe.png) |
+| **SEFAZ and ADN (NF-e and NFS-e, with Origin and Role)** | **"Everything" scope (archive + SEFAZ + ADN)** |
+| ![SEFAZ and ADN](docs/prints/sefaz-adn.png) | ![Everything scope](docs/prints/escopo-tudo.png) |
+| **ADN diagnostic (read-only)** | **Official DANFE (NF-e 55)** |
+| ![ADN diagnostic](docs/prints/diagnostico-adn.png) | ![DANFE](docs/prints/danfe.png) |
 
 ![DANFSe v2.0 with QR Code](docs/prints/danfse.png)
 
 > Every screenshot uses the fictitious fixtures in `tests/fixtures/` (made-up companies and CNPJs); no real data appears. The UI itself is in Portuguese.
+
+---
+
+## Scope: what each source brings
+
+| Document | How it comes in | Role of your CNPJ | Note |
+| :--- | :--- | :--- | :--- |
+| **Product NF-e (model 55)** | **SEFAZ** (`NFeDistribuicaoDFe`, automatic fetch) or upload | What SEFAZ distributes to the CNPJ (usually invoices **addressed to / received by** it; the `resNFe` summary requires manifestation to release the XML) | This project has **not confirmed** that `NFeDistribuicaoDFe` delivers NF-e **issued by the CNPJ itself**; use upload for those. The **Papel** (role) column shows what actually arrived. |
+| **Issued NFS-e** (CNPJ as service provider) | **National ADN** (automatic fetch) or upload | Issued | National Standard NFS-e only. |
+| **Received NFS-e** (CNPJ as service taker) | **National ADN** or upload | Received | Same flow and same query as the issued ones. |
+| **NFS-e with the CNPJ as intermediary** | **National ADN** or upload | Intermediary | |
+| **NFC-e (model 65)** | **Upload only** | — | Neither SEFAZ nor the ADN is queried for NFC-e. |
+| **Any other XML** (loose event, legacy municipal NFS-e, etc.) | **Upload only** | — | Legacy municipal NFS-e layouts (ABRASF, etc.) are rejected with an alert. |
+
+The **SEFAZ e ADN** tab shows what was fetched automatically (Type, Origin, Role, status, mirror and XML). The **"Tudo (acervo + SEFAZ + ADN)"** scope on the first tab adds uploads, SEFAZ and ADN **without duplicating keys** (on a repeated key the upload wins), and the KPIs and summary count NF-e, NFC-e and NFS-e. Invoices from SEFAZ/ADN enter that view without revalidation and **without per-item lines or taxes** (totals only).
 
 ---
 
@@ -38,6 +55,7 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 | **Phase 2 — SEFAZ Inbound Sync (`NFeDistribuicaoDFe` + A1 Certificate + SQLite)** | ✅ Ready | Verified with ephemeral in-memory X.509/PKCS#12 certificates, SOAP 1.2 envelopes (`cStat 138`, `137`, and `656`), 1-hour lock against `656` penalties, and 200+ automated tests. |
 | **Phase 3 — Persistent Batch History, Unified Archive & Visual A1 Certificate UI** | ✅ Ready | Uploaded batches persist in SQLite (`GET /api/lotes` & deduplicated `GET /api/acervo`), with in-browser `.pfx` upload, password validation, state (`cUFAutor`), and environment switching. |
 | **Scale (15,000+ invoices), pagination, clickable sorting & official layouts** | ✅ Ready | Archive listing and summary **never read or decompress** the SQLite `xml_gzip` (on-demand read only when opening details, the DANFE/DANFSe mirror or downloading the XML, backed by a key index), paginated tables (`50 / 100 / 250 / All`), sortable headers and official DANFE/DANFSe v2.0 layouts. ZIP extraction limits raised to 50,000 files / 1 GB (still bounded against *zip bombs*). |
+| **Phase 4 — NFS-e via the national ADN (issued and received) and unified view** | ⚠️ Partially validated | **Validated:** simulated responses (automated tests, no network); on **2026-11-19**, the real diagnostic in **restricted production and in production** (TLS ok, HTTP 200, `DOCUMENTOS_LOCALIZADOS`, `TipoConsulta CnpjBase`); a sync of **one page** in production brought **50 new NFS-e** (taker and intermediary roles, no processing errors). There were intermittent connection failures, now handled with automatic retries. **Not validated:** the **complete** sync (all pages) in production. |
 
 ---
 
@@ -62,16 +80,19 @@ Your XML files and digital certificate never leave your infrastructure: all proc
 5. **Executive Batch Summary & Accounting Export (CSV & XLSX):**
    - Aggregates totals by **Issuer/Provider**, by **Tax** (`ICMS`, `ICMS-ST`, `IPI`, `PIS`, `COFINS`, `ISS`, `Withholdings`, `IBS/CBS`), and by **Period** (`YYYY-MM`).
    - Exports UTF-8 with BOM CSVs and a **4-sheet XLSX workbook** (`Notas`, `Itens`, `Resumo`, `Alertas`).
-6. **Inbound SEFAZ Invoice Synchronization (`NFeDistribuicaoDFe` — Phase 2):**
-   - Performs SOAP 1.2 queries with mTLS using an ICP-Brasil A1 certificate (`.pfx`), decompresses `<docZip>` payloads (`base64 + gzip`), persists records in local SQLite, and provides the **"🏛️ Recebidas da SEFAZ (DistDFe)"** tab filterable by issuer, date range, amount, category, and status.
+6. **NF-e Synchronization via SEFAZ (`NFeDistribuicaoDFe` — Phase 2):**
+   - Performs SOAP 1.2 queries with mTLS using an ICP-Brasil A1 certificate (`.pfx`), decompresses `<docZip>` payloads (`base64 + gzip`), persists records in local SQLite, and provides the **"🏛️ SEFAZ e ADN"** tab filterable by issuer, date range, amount, category, and status.
+7. **NFS-e Synchronization via the National ADN (issued and received — Phase 4):**
+   - Fetches, in the same flow, NFS-e where the CNPJ is **provider, taker or intermediary**, with its own NSU cursor, automatic retries only on connection failures and a read-only diagnostic. See the **Phase 4** section below and `docs/adn.md`.
+8. **Single view:** the **SEFAZ e ADN** tab (*Sincronizar NF-e*, *Sincronizar NFS-e*, *Sincronizar tudo* and *Diagnóstico do ADN* buttons) and the **Tudo** scope on the first tab show everything the CNPJ issued or received (product, service and consumer).
 
 ---
 
-## Phase 2: Inbound Invoices (`NFeDistribuicaoDFe`) & Safe A1 Certificate Handling
+## Phase 2: NF-e via SEFAZ (`NFeDistribuicaoDFe`) & Safe A1 Certificate Handling
 
 ### 1. Security of the ICP-Brasil e-CNPJ A1 Certificate (`.pfx`)
 - **Visual Web UI Configuration or Environment Variables (`.env`):**
-  - Directly from the web interface (**🏛️ Recebidas da SEFAZ** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`certificado.pfx` in the safe folder described in **Where the certificate and password are stored**, outside the project).
+  - Directly from the web interface (**🏛️ SEFAZ e ADN** tab -> **"⚙️ Cadastrar / Trocar Certificado (.pfx)"**), you can upload your `.pfx`/`.p12` file, enter the password, and select the state (`cUFAutor`) and environment (`Homologation` or `Production`). The pair is validated in memory with `cryptography` before being stored under a fixed safe filename (`certificado.pfx` in the safe folder described in **Where the certificate and password are stored**, outside the project).
   - Alternatively, for headless servers or CLI/Docker automation, configure via `.env`:
   ```ini
   NFE_CERT_PATH=/secure/path/company_a1.pfx
@@ -128,6 +149,49 @@ Candidly, this is what exists on disk:
   - When the full `<procNFe>` arrives in a later NSU, the SQLite record is **automatically upgraded** to `NFE_COMPLETA` (with anti-downgrade protection if an older summary is reprocessed). Cancellation events (`110111` / `110112`) automatically mark the corresponding invoice as `CANCELADA`.
 - **SEFAZ ~90-Day Retention Window:**
   - The national `NFeDistribuicaoDFe` WebService only retains documents for roughly 90 days. Periodic synchronization and regular backups of `data/nfe_recebidas.db` are recommended.
+
+---
+
+## Phase 4: NFS-e via the National ADN (issued and received)
+
+The **ADN** (national NFS-e data environment) distributes the National Standard NFS-e tied to your CNPJ. The client (`sefaz/adn.py`) reuses the **same A1 certificate** you already registered and fetches, **in the same flow**, the invoices **issued** (CNPJ as provider), **received** (CNPJ as taker) and those where the CNPJ is the **intermediary**. The contract confirmed from the official Swagger is summarized in [`docs/adn.md`](docs/adn.md).
+
+- **`cnpjConsulta` is mandatory in practice.** The Swagger lists it as optional, but in real use (Nov 2026) the query without it got HTTP 400 `REJEICAO` with `TipoConsulta InscricaoCertificado` and an **empty** error list; with it, HTTP 200 (`TipoConsulta CnpjBase`). The program **always** sends the 14 characters of the certificate's CNPJ (or `NFE_CNPJ_CONSULTA`).
+- **Environments:** restricted production (environment 2) and production (environment 1). The base URL is configurable (`NFE_ADN_URL_BASE` or `--url-base`); the production Swagger was not downloaded, so the production contract was assumed equal to restricted production (the real production diagnostic was consistent with that).
+- **Nothing runs on its own:** syncing happens only when you click the button or run the command; there is no automatic loop.
+
+### How to test the real call (step by step)
+
+1. **Register the A1 certificate** (**SEFAZ e ADN** tab → *Cadastrar / Trocar Certificado*, or `NFE_CERT_PATH`/`NFE_CERT_SENHA`).
+2. **Diagnostic (writes nothing):** the **🩺 Diagnóstico do ADN** button or `nfe-local sincronizar-adn --diagnostico --ambiente 2` (then `--ambiente 1`). It makes **one** read query and shows: base URL, **masked** CNPJ, certificate validity, TLS result (version and cipher), HTTP, `StatusProcessamento`, `TipoConsulta`, errors/alerts and the item count per type. On a connection failure it shows the stage, root exception, OS code and what to do, with no URL parameters, CNPJ, certificate path, password or XML.
+3. **One-page sync:** `nfe-local sincronizar-adn --max-paginas 1 --db <a test database>`.
+4. **Full sync:** `nfe-local sincronizar-adn` (or **Sincronizar NFS-e (ADN)** / **Sincronizar tudo** in the panel). If it stops at `LIMITE_PAGINAS`, run again: it continues from the cursor.
+
+> **What has (and has not) been tested in real use:** the diagnostic in both environments and a sync of **one page** in production (50 new NFS-e, no processing errors). The **complete** production sync is **not confirmed yet**.
+
+### Wait and retry policy
+
+The ADN Swagger **does not document any usage limit, lock or `Retry-After`**. The intervals below are **this project's choices**, not ADN rules.
+
+| Situation | What the program does |
+| :--- | :--- |
+| **Connection** failure (reset, `RemoteDisconnected`, timeout, name failure, TLS) | Retries the **same query** (`GET`, idempotent): default **3 attempts**, with growing waits of **2 s, 5 s and 10 s**. Configurable via `--tentativas N` (1 to 5) or `NFE_ADN_TENTATIVAS`. When exhausted, it stops with `ERRO` keeping everything already saved; the next run continues from the cursor. |
+| Valid HTTP response (200, 400, 403, 404, etc.) | **No retry.** |
+| `404` | Only an "empty queue" if the body is JSON with `NENHUM_DOCUMENTO_LOCALIZADO` (or `E2220`/`E2230`). Any other `404` becomes an address error (check `NFE_ADN_URL_BASE`). |
+| `429` | **No retry**; honors `Retry-After` (or waits 1 hour without it) without touching the network. |
+| `5xx` | **No retry**; waits 10 minutes (or `Retry-After`) without touching the network. |
+| Invalid or expired certificate | **No retry.** |
+| Between pages | 1 s wait; at most 20 pages per run (`--max-paginas`). |
+
+The connection-failure message first says that intermittent ADN failures are common, how many times the program tried and that it is worth trying again in a few minutes; only then does it suggest checking network and certificate. `sync_log` records, per run, the origin (`NFE` or `NFSE`), the total attempts and, for each failure, only the page, attempt, stage and error class.
+
+### Role of the CNPJ on the invoice (Issued, Received, Intermediary)
+
+The role is computed by **comparing the queried CNPJ** (the certificate's, or `NFE_CNPJ_CONSULTA`) with the NFS-e provider, taker and intermediary (and with the NF-e issuer and recipient), with alphanumeric CNPJ support. The table shows the criterion on hover over **Papel**. Without a reference CNPJ the column shows "—". Quick filters: **Só emitidas** (issued only) and **Só tomadas / recebidas** (received only).
+
+### How data is stored
+
+It reuses the `notas_recebidas` table, with the new columns `origem` (`DISTDFE` or `ADN`) and `papel`. The database migration **only adds** columns and indexes (never deletes or rewrites rows) and is idempotent. Deduplication is by access key; a late event (e.g. cancellation) updates only the status and never downgrades a complete invoice. The ADN cursor is **its own** (`adn_cursor`, integer NSU), independent of the `NFeDistribuicaoDFe` cursor.
 
 ---
 
@@ -197,7 +261,7 @@ Full methodology and reproduction instructions are available in [`docs/benchmark
    - It then creates an isolated virtual environment outside OneDrive (`%USERPROFILE%\venvs\nfe-local`), installs dependencies, runs `pip install -e .` (registers the `nfe-local` command in that environment's `Scripts` folder), and creates a **"Visualizador NF-e Local"** shortcut on your Desktop. Everything is logged to `instalar.log`.
 2. Double-click the Desktop shortcut or **`iniciar.bat`**.
    - Your browser will open `http://127.0.0.1:8765`.
-   - Use **"Carregar Lote de Demonstração"** on the Batch Analyzer tab, or switch to **"🏛️ Recebidas da SEFAZ (DistDFe)"** and click **"🧪 Carregar Recebidas de Demonstração"** to test the inbound filters without a real A1 certificate.
+   - Use **"Carregar Lote de Demonstração"** on the Batch Analyzer tab, or switch to **"🏛️ SEFAZ e ADN"** and click **"🧪 Carregar Recebidas de Demonstração"** to test the inbound filters without a real A1 certificate.
 
 ### Option 2: Command-Line Interface (CLI)
 
@@ -215,6 +279,11 @@ nfe-local sincronizar-sefaz --demo --json
 
 # Synchronize inbound invoices from SEFAZ (requires NFE_CERT_PATH and NFE_CERT_SENHA)
 nfe-local sincronizar-sefaz --ambiente 2 --db data/nfe_recebidas.db
+
+# NFS-e via the ADN: read-only diagnostic (writes nothing), then one page, then everything
+nfe-local sincronizar-adn --diagnostico --ambiente 2
+nfe-local sincronizar-adn --max-paginas 1 --db data/teste.db
+nfe-local sincronizar-adn --demo --json   # synthetic NFS-e, no network
 
 # Start the local web server manually
 nfe-local servidor --host 127.0.0.1 --port 8765
@@ -250,12 +319,13 @@ docker run --rm -p 127.0.0.1:8765:8765 nfe-local:latest
 flowchart LR
     A["Local Input (.xml / .zip)"] --> B["Safe Extractor (Anti-ZipBomb)"]
     S["SEFAZ NFeDistribuicaoDFe (SOAP 1.2 mTLS)"] --> Z["docZip Decompressor (Base64 + GZIP)"]
+    N["National ADN NFS-e (REST mTLS)"] --> Z
     Z --> C["Anti-XXE lxml Parser (resolve_entities=False)"]
     B --> C
     C --> D["Auto Detector (NF-e 55 / NFC-e 65 / NFS-e / Summary / Event)"]
     D --> E["Pydantic v2 Models (Exact Decimal Values)"]
     E --> F["Validation Engine (Key, Alphanumeric CNPJ, vProd/vNF Sum, Batch)"]
-    F --> DB["Local SQLite (dfe_cursor / notas_recebidas / sync_log)"]
+    F --> DB["Local SQLite (dfe_cursor / adn_cursor / notas_recebidas / sync_log)"]
     F --> G["O(1) Streaming Aggregator (ResumoLote)"]
     F --> H["Printable A4 Mirrors (DANFE Code 128 SVG / DANFSe NT 008/2026)"]
     G --> I["CSV (BOM) & 4-Sheet XLSX Exporter (Anti-Formula-Injection)"]
@@ -271,6 +341,10 @@ flowchart LR
    - For service invoices (NFS-e), only the **National Standard** (`http://www.sped.fazenda.gov.br/nfse`) is supported. Legacy municipal layouts (such as ABRASF) are explicitly rejected with a clear message, as they are being phased out nationwide.
 3. **A3 Hardware Certificates (USB Token / Smartcard) Not Supported:**
    - The `NFeDistribuicaoDFe` module exclusively supports **A1 Digital Certificates (`.pfx` / PKCS#12)** loaded in memory. Hardware-based PKCS#11 A3 tokens are out of scope.
+4. **ADN (NFS-e): what is not yet proven or not supported:**
+   - The **complete** production sync is not confirmed yet (only the diagnostic and one page). The production Swagger was not downloaded. The query is for the **certificate's CNPJ** (`cnpjConsulta`; power of attorney and `cpfConsulta` were neither implemented nor tested).
+   - In the **Tudo** view, SEFAZ/ADN invoices enter without revalidation and without per-item lines or taxes.
+   - `NFeDistribuicaoDFe` is not the source for NFC-e; for NF-e **issued by the CNPJ itself**, delivery by SEFAZ was not confirmed: use upload.
 
 ---
 
@@ -306,6 +380,25 @@ For tasks 19 to 25 there was **no** concrete failure caught in review: the table
 | **23. Polish & Database Reset** — Table without horizontal scroll, `resetar-banco` and `.gitignore` hardening. | A fiscal file or generated spreadsheet in the project folder could be committed by accident to a public repo. | `.gitignore` blocks `*.xml`/`*.zip`/`*.csv`/`*.xlsx` outside `tests/fixtures/`; reset exists in the API, CLI and UI (the CLI does not ask for confirmation). |
 | **24. Sorting & Official Layouts** — Clickable sorting and DANFE/DANFSe faithful to the official layout. | Rendering the mirror only from the normalized model loses fields that do not fit `DocumentoFiscal` (carrier, ANTT code, DPS, official domains). | Mirror routes pass the raw `xml_bytes` to the renderer, with a fallback to `DocumentoFiscal`; sorting distinguishes numbers, dates and text. |
 | **25. QR Code, Lazy Load & Pagination** — QR Code on the DANFSe v2.0 and scale to 15,000+ invoices. | Listing the archive by decompressing every invoice's `xml_gzip` blows memory/time, and rendering thousands of rows freezes the browser. | `obter_acervo_unificado(incluir_xmls_brutos=False)` never touches the XML; `idx_lotes_itens_chave` index + per-invoice reads; DOM holds only the active page; pure-SVG QR Code (`qrcode`, no Pillow). |
+
+---
+
+### Design decisions and risks considered (task 27 — ADN and unified view)
+
+In this table, **"Type"** separates what was merely a **design decision** from what was **observed in real use** and from **documentation corrections**. Nothing here is presented as a code bug found in review unless it was.
+
+| Topic | What was decided or done | Why | Type |
+| :--- | :--- | :--- | :--- |
+| `cnpjConsulta` | Always sent, with the CNPJ's 14 characters. | The Swagger lists it as optional, but without it the real query got HTTP 400 with no details. | **Observed in real use** |
+| ADN `404` | Only an "empty queue" with the expected JSON body; otherwise an address error. | With a wrong base URL, any `404` would silently become "no new invoices". | Preventive decision |
+| ADN cursor | Its own cursor (`adn_cursor`, integer NSU). | The ADN NSU is `int64`; the `NFeDistribuicaoDFe` one has 15 digits and belongs to another service. | Design decision |
+| Existing database (15k invoices) | The migration only **adds** columns and indexes; tested with a synthetic old-format database. | Never delete or rewrite rows of a real database. | Design decision |
+| Retry on connection failure | 3 attempts (2 s, 5 s, 10 s) only for **connection** failures; never for HTTP responses, `429`, `5xx` or certificates. | Intermittent failures (`RemoteDisconnected`) showed up in the real sync, and the `GET` query is idempotent. | **Observed in real use** |
+| Wait intervals | `429` waits `Retry-After` or 1 h; `5xx` waits 10 min. | The Swagger documents no usage limit or lock; the values are conservative and **the project's choice**. | Design decision |
+| Issued/Received role | Compares the queried CNPJ with the invoice parties; without a reference, "—". | The role does not come ready from the ADN; computing it on read avoids rewriting old rows. | Design decision |
+| Demonstration | Loads the synthetic NFS-e **without touching** the cursor or `sync_log`. | Clicking "demo" on a real database must not disturb the real sync. | Design decision |
+| "Tudo" view | Adds uploads, SEFAZ and ADN without reading XML (columns only); no items/taxes for fetched invoices. | Reprocessing 15k XMLs on each click would be slow. | Design decision (accepted limitation) |
+| Temporary mTLS file | `requests-pkcs12` briefly writes a temporary `.pem` with the encrypted key. | The documentation said nothing was written to disk; it was corrected (task 28 evaluates removing the file). | **Documentation correction** |
 
 ---
 
