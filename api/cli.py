@@ -176,6 +176,20 @@ def criar_parser() -> argparse.ArgumentParser:
         help="Faz UMA consulta de leitura a GET /DFe/0 e mostra o resultado, sem gravar nada.",
     )
     parser_adn.add_argument(
+        "--tentativas",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+        help="Só com --diagnostico: tentativas se a conexão falhar (1 a 3; padrão 1).",
+    )
+    parser_adn.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        metavar="SEGUNDOS",
+        help="Tempo máximo de cada chamada ao ADN, em segundos (padrão 30).",
+    )
+    parser_adn.add_argument(
         "--demo",
         action="store_true",
         help="Carrega NFS-e sintéticas (emitidas, tomadas, uma cancelada) sem rede.",
@@ -434,7 +448,29 @@ def _imprimir_diagnostico_adn(diag: DiagnosticoADN) -> None:
         f"{_data(diag.certificado_valido_ate)}"
         f"{' (VENCIDO)' if diag.certificado_vencido else ''}"
     )
+    print(
+        f"Tentativas                      : {diag.tentativas_realizadas} de "
+        f"{diag.tentativas_solicitadas} ({diag.tentativas_com_falha} com falha)"
+        f" | timeout {diag.timeout_segundos:g}s"
+    )
     print(f"Conexão TLS                     : {diag.conexao_tls}")
+    if diag.tls_versao or diag.tls_cifrador:
+        versao, cifrador = diag.tls_versao or "-", diag.tls_cifrador or "-"
+        print(f"TLS negociado                   : {versao} / {cifrador}")
+    falha = diag.falha_conexao or (diag.falhas_conexao[-1] if diag.falhas_conexao else None)
+    if falha is not None:
+        print(f"Falha - etapa                   : {falha.etapa}")
+        print(f"Falha - exceção raiz            : {falha.excecao_raiz}")
+        print(f"Falha - cadeia                  : {' > '.join(falha.cadeia_excecoes)}")
+        print(f"Falha - código do SO            : {falha.codigo_so or '-'}")
+        if falha.motivo_tls:
+            print(f"Falha - motivo TLS              : {falha.motivo_tls}")
+        encerrou = "SIM" if falha.servidor_encerrou_conexao else "NÃO"
+        print(
+            f"Falha - servidor encerrou       : {encerrou}"
+            f" | tempo esgotado: {'SIM' if falha.tempo_esgotado else 'NÃO'}"
+        )
+        print(f"O que fazer                     : {falha.orientacao}")
     print(f"HTTP status                     : {diag.http_status if diag.http_status else '-'}")
     print(f"StatusProcessamento             : {diag.status_processamento or '-'}")
     print(f"TipoConsulta                    : {diag.tipo_consulta or '-'}")
@@ -460,11 +496,17 @@ def _executar_diagnostico_adn(args: argparse.Namespace) -> int:
         amb = resolver_ambiente_sefaz(
             args.ambiente if args.ambiente is not None else config.ambiente
         )
-        cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb, base_url=args.url_base)
+        cliente = ClienteADN(
+            pfx_bytes=pfx_bytes,
+            senha=senha,
+            ambiente=amb,
+            base_url=args.url_base,
+            timeout_segundos=args.timeout,
+        )
     except (ErroCertificadoA1, ValueError) as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
-    diag = diagnosticar_adn(cliente)
+    diag = diagnosticar_adn(cliente, tentativas=args.tentativas)
     if args.saida_json:
         print(json.dumps(diag.model_dump(mode="json"), ensure_ascii=False, indent=2))
     else:
@@ -494,7 +536,11 @@ def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
                 args.ambiente if args.ambiente is not None else config.ambiente
             )
             cliente = ClienteADN(
-                pfx_bytes=pfx_bytes, senha=senha, ambiente=amb, base_url=args.url_base
+                pfx_bytes=pfx_bytes,
+                senha=senha,
+                ambiente=amb,
+                base_url=args.url_base,
+                timeout_segundos=args.timeout,
             )
             resumo = sincronizar_adn(
                 cliente.consultar_nsu,

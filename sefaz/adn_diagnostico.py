@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sefaz.adn import (
     ClienteADN,
     ErroADN,
+    FalhaConexao,
     MensagemADN,
     _chave_ci,
     _mensagens,
@@ -73,6 +76,14 @@ class DiagnosticoADN(BaseModel):
     categoria_erro: str | None = None
     interpretacao: str = ""
     sucesso: bool = False
+    timeout_segundos: float | None = None
+    tentativas_solicitadas: int = 1
+    tentativas_realizadas: int = 0
+    tentativas_com_falha: int = 0
+    tls_versao: str | None = None
+    tls_cifrador: str | None = None
+    falhas_conexao: list[FalhaConexao] = Field(default_factory=list)
+    falha_conexao: FalhaConexao | None = None
 
 
 def _msgs(lista: list[MensagemADN]) -> list[MensagemDiagnostico]:
@@ -81,9 +92,20 @@ def _msgs(lista: list[MensagemADN]) -> list[MensagemDiagnostico]:
     ]
 
 
-def diagnosticar_adn(cliente: ClienteADN) -> DiagnosticoADN:
-    """Faz UMA consulta a `GET /DFe/0` e resume o resultado, sem persistir nada."""
+MAX_TENTATIVAS = 3
+ESPERA_ENTRE_TENTATIVAS = 2.0
+
+
+def diagnosticar_adn(
+    cliente: ClienteADN,
+    *,
+    tentativas: int = 1,
+    espera_segundos: float = ESPERA_ENTRE_TENTATIVAS,
+    dormir_fn: Callable[[float], None] | None = None,
+) -> DiagnosticoADN:
+    """Consulta `GET /DFe/0` (até `tentativas` vezes, só se a conexão falhar) e resume."""
     meta = cliente.metadados_certificado
+    total = max(1, min(int(tentativas), MAX_TENTATIVAS))
     diag = DiagnosticoADN(
         ambiente=cliente.ambiente,
         url_base=cliente.base_url,
@@ -92,15 +114,40 @@ def diagnosticar_adn(cliente: ClienteADN) -> DiagnosticoADN:
         certificado_valido_de=meta.valido_de,
         certificado_valido_ate=meta.valido_ate,
         certificado_vencido=meta.vencido,
+        timeout_segundos=cliente.timeout_segundos,
+        tentativas_solicitadas=total,
     )
-    try:
-        status, corpo, _ = cliente.requisitar(0)
-    except ErroADN as exc:
-        diag.conexao_tls = f"falha: {exc}"
-        diag.categoria_erro = exc.categoria
-        diag.interpretacao = str(exc)
+    resultado: tuple[int, bytes] | None = None
+    ultimo_erro = ErroADN("Nenhuma tentativa realizada.", categoria="CONEXAO")
+    for numero in range(total):
+        if numero > 0 and espera_segundos > 0:
+            (dormir_fn or time.sleep)(espera_segundos)
+        diag.tentativas_realizadas += 1
+        try:
+            status, corpo, _ = cliente.requisitar(0, capturar_tls=True)
+        except ErroADN as exc:
+            ultimo_erro = exc
+            if exc.categoria != "CONEXAO":
+                break  # só falhas de conexão justificam nova tentativa
+            diag.tentativas_com_falha += 1
+            if exc.falha is not None:
+                diag.falhas_conexao.append(exc.falha)
+            continue
+        resultado = (status, corpo)
+        break
+
+    if resultado is None:
+        diag.conexao_tls = f"falha: {ultimo_erro}"
+        diag.categoria_erro = ultimo_erro.categoria
+        diag.interpretacao = str(ultimo_erro)
+        diag.falha_conexao = ultimo_erro.falha
+        if ultimo_erro.categoria != "CONEXAO":
+            diag.tentativas_com_falha += 1
         return diag
 
+    status, corpo = resultado
+    if cliente.ultima_info_tls:
+        diag.tls_versao, diag.tls_cifrador = cliente.ultima_info_tls
     diag.conexao_tls = "ok"
     diag.http_status = status
 
