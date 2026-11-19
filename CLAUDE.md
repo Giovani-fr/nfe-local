@@ -21,7 +21,7 @@ O sistema opera **100% local e sem custo de API**, oferecendo:
 2. **TDD (Teste antes do código):** Escreva os testes automatizados (`pytest`) cobrindo os cenários de sucesso e de borda antes (ou junto) da implementação e garanta que toda a suíte passe.
 3. **Qualidade e Linter:** Todo código deve passar sem avisos no `ruff check` e `ruff format --check`.
 4. **Privacidade e Segurança Absoluta (Repositório Público desde o Dia 1):**
-   - **NUNCA** inclua XMLs reais, chaves de acesso reais, CNPJs/CPFs de empresas reais (como da a empresa do autor ou de clientes/fornecedores) ou certificados digitais no código, nos testes ou nos commits.
+   - **NUNCA** inclua XMLs reais, chaves de acesso reais, CNPJs/CPFs de empresas reais (de qualquer empresa, cliente ou fornecedor) ou certificados digitais no código, nos testes ou nos commits.
    - Todas as fixtures em `tests/fixtures/` devem usar dados **100% fictícios** (ex.: `"EMPRESA EXEMPLO LTDA"`, CNPJs gerados matematicamente para teste) e chaves com dígito verificador calculado sobre dados sintéticos.
    - Segredos (caminho do certificado `.pfx`, senha do certificado, chaves de API opcionais) ficam **exclusivamente em variáveis de ambiente** (`.env` listado no `.gitignore`), nunca hardcoded.
 5. **Segurança no Parser XML (Anti-XXE):**
@@ -117,5 +117,5 @@ Use `Decimal` para todos os campos monetários e de quantidade (evitando erros d
    - **Proibido usar `re.sub(r"\D", "", ...)`** para limpar CNPJ ou Chave de Acesso. Use limpeza alfanumérica (`re.sub(r"[^0-9A-Za-z]", "", valor).upper()`), removendo prefixos conhecidos no início (`NFe`, `CTe`, `NFSe`, `NFS`, `DPS`).
 2. **Batimento Financeiro Inteligente:**
    - Validar que a soma de `item.valor_total` ($\sum \text{vProd}$) bate com `totais.valor_produtos_servicos` (`vProd` do `ICMSTot`), com tolerância de `Decimal('0.01')` apenas quando expressamente configurado, e validar a equação da nota: `vProd - vDesc + vFrete + vSeg + vOutro + vIPI + vST == vNF`.
-3. **Referência de Domínio Local (`projeto-de-referencia`):**
-   - Na pasta vizinha `../projeto-de-referencia/utils/` existem implementações de referência já validadas pelo autor (`nfe_extrai.py`, `danfe.py`, `nfse_nacional_extrai.py`, `nfse_dominios.py`, `cert_a1.py`, `nfse_adn.py`). Podem ser consultadas como inspiração de mapeamento de tags XML e layout HTML A4, mas **nunca importe nem altere arquivos do `projeto-de-referencia`** e **nunca copie dados/XMLs reais de lá**.
+3. **Referência de Domínio:**
+   - O mapeamento de tags XML e o layout HTML A4 seguem os manuais oficiais (MOC da NF-e, NT 008/2026 do DANFSe e Padrão Nacional da NFS-e). Nenhum código, dado ou XML de projetos externos ou de empresas reais deve ser copiado para este repositório.

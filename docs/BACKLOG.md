@@ -162,7 +162,7 @@ Este backlog segue a regra de **uma tarefa por sessão de execução no VS Code*
     - Criar endpoints `DELETE /api/recebidas` e `POST /api/sistema/resetar-banco` em `api/app.py` e subcomando CLI `nfe-local resetar-banco`.
     - Adicionar botões na interface web para limpar as notas recebidas da Aba 2 e para **Resetar Todo o Banco Local** (separando testes de dados reais), e deixar o banco local `data/nfe_recebidas.db` zerado ao final da tarefa.
 
-- [x] **24. Ordenação Clicável nas Tabelas (Aba 1 e Aba 2) e Espelhos DANFE / DANFSe no Padrão Oficial (`projeto-de-referencia`)**
+- [x] **24. Ordenação Clicável nas Tabelas (Aba 1 e Aba 2) e Espelhos DANFE / DANFSe no Padrão Oficial**
   - **Ordenação clicável nas tabelas (`web/templates/index.html`, `web/static/styles.css` e `web/static/app.js`):** adicionar coluna `Emissão` na tabela de notas da Aba 1 e cabeçalhos `<th class="sortable" data-sort="...">` em ambas as abas (ordenação inteligente numérica, cronológica e alfabética em memória com indicadores `⇅` / `▲` / `▼`).
   - **DANFE e DANFSe no padrão oficial fiel (`reports/danfe_svg.py`, `api/app.py`, `web/templates/danfe.html`, `web/templates/danfse.html`):** passar `xml_bytes` bruto nas rotas de espelho (`/lote/.../espelho` e `/recebidas/.../espelho`) com fallback para `DocumentoFiscal`, renderizando todos os 9 blocos oficiais do DANFE (canhoto, cabeçalho triplo com `0 - ENTRADA / 1 - SAÍDA`, protocolo, destinatário em 3 linhas, duplicatas/pagamentos, cálculo do imposto em 5+6 caixas, transportador/volumes com Código ANTT, tabela de itens de 14 colunas com `BC ICMS`/`Alíq. ICMS`/`Alíq. IPI` e dados adicionais) e o DANFSe v2.0 (NT 008/2026) completo com domínios oficiais, DPS, Simples Nacional, ISSQN, tributos federais, IBS/CBS e Lei 12.741/2012.
 
