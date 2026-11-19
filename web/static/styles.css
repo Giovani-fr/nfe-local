@@ -789,38 +789,73 @@ body {
   padding: 0.52rem 0.45rem;
 }
 
-/* Larguras proporcionais — Aba 1 (soma = 100%) */
+/* Larguras proporcionais — Aba 1 (9 colunas, soma = 100%) */
 .data-table-notas .col-arquivo {
-  width: 16%;
+  width: 15%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-notas .col-tipo {
-  width: 7%;
+  width: 6%;
 }
 
 .data-table-notas .col-numero {
-  width: 9%;
+  width: 8%;
   word-break: break-word;
 }
 
+.data-table-notas .col-emissao-nota {
+  width: 8%;
+  white-space: nowrap;
+}
+
 .data-table-notas .col-parte {
-  width: 17%;
+  width: 15.5%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .data-table-notas .col-valor {
-  width: 10%;
+  width: 9%;
 }
 
 .data-table-notas .col-status {
-  width: 12%;
+  width: 11%;
 }
 
 .data-table-notas .col-actions {
   width: 12%;
+}
+
+/* Cabeçalhos clicáveis de ordenação */
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.data-table th.sortable:hover {
+  color: var(--text-main);
+  background-color: rgba(232, 199, 122, 0.12);
+}
+
+.data-table th.sortable.sort-active {
+  color: var(--accent-gold);
+}
+
+.sort-ind {
+  display: inline-block;
+  margin-left: 0.22rem;
+  font-size: 0.68rem;
+  opacity: 0.55;
+  vertical-align: middle;
+}
+
+.data-table th.sortable:hover .sort-ind,
+.data-table th.sortable.sort-active .sort-ind {
+  opacity: 1;
+  color: var(--accent-gold);
 }
 
 /* Larguras proporcionais — Aba 2 (soma = 100%) */

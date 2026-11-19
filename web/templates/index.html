@@ -232,13 +232,14 @@
                   <table class="data-table data-table-notas">
                     <thead>
                       <tr>
-                        <th class="col-arquivo">Arquivo / Chave</th>
-                        <th class="col-tipo">Tipo</th>
-                        <th class="col-numero">Nº / Série</th>
-                        <th class="col-parte">Emitente / Prestador</th>
-                        <th class="col-parte">Destinatário / Tomador</th>
-                        <th class="num col-valor">Valor (R$)</th>
-                        <th class="col-status">Validação e Alertas</th>
+                        <th class="col-arquivo sortable" data-sort="arquivo" title="Ordenar por Arquivo / Chave">Arquivo / Chave <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-tipo sortable" data-sort="tipo" title="Ordenar por Tipo">Tipo <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-numero sortable" data-sort="numero" title="Ordenar por Número da Nota">Nº / Série <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-emissao-nota sortable" data-sort="data_emissao" title="Ordenar por Data de Emissão">Emissão <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-parte sortable" data-sort="emitente" title="Ordenar por Emitente / Prestador">Emitente / Prestador <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-parte sortable" data-sort="destinatario" title="Ordenar por Destinatário / Tomador">Destinatário / Tomador <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="num col-valor sortable" data-sort="valor_total" title="Ordenar por Valor Total">Valor (R$) <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                        <th class="col-status sortable" data-sort="status" title="Ordenar por Status de Validação">Validação e Alertas <span class="sort-ind" aria-hidden="true">⇅</span></th>
                         <th class="col-actions">Ações</th>
                       </tr>
                     </thead>
@@ -561,12 +562,12 @@
           <table class="data-table data-table-recebidas">
             <thead>
               <tr>
-                <th class="col-nsu">NSU</th>
-                <th class="col-emissao">Emissão</th>
-                <th class="col-num-chave">Número / Chave</th>
-                <th class="col-parte-rec">Emitente</th>
-                <th class="num col-valor-rec">Valor Total (R$)</th>
-                <th class="col-sit-rec">Situação / Manifestação</th>
+                <th class="col-nsu sortable" data-sort="nsu" title="Ordenar por NSU">NSU <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-emissao sortable" data-sort="data_emissao" title="Ordenar por Data de Emissão">Emissão <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-num-chave sortable" data-sort="numero" title="Ordenar por Número da Nota">Número / Chave <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-parte-rec sortable" data-sort="emitente" title="Ordenar por Emitente">Emitente <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="num col-valor-rec sortable" data-sort="valor_total" title="Ordenar por Valor Total">Valor Total (R$) <span class="sort-ind" aria-hidden="true">⇅</span></th>
+                <th class="col-sit-rec sortable" data-sort="situacao" title="Ordenar por Situação">Situação / Manifestação <span class="sort-ind" aria-hidden="true">⇅</span></th>
                 <th class="col-actions">Ações</th>
               </tr>
             </thead>

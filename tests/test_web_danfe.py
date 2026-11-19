@@ -102,6 +102,44 @@ class TestFormatadoresEBarcodeSvg:
         assert len(ctx_danfse["chave_acesso"]) == 50
         assert ctx_danfse["totais"]["iss_fmt"] != "0,00"
 
+    def test_montar_contextos_danfe_e_danfse_com_xml_bytes_oficial(self) -> None:
+        xml_nfe = (PASTA_FIXTURES / "nfe_55_valida.xml").read_bytes()
+        res_nfe = processar_arquivo_xml(xml_nfe, "nfe_55_valida.xml")
+        ctx_nfe = montar_contexto_danfe(res_nfe, xml_bytes=xml_nfe)
+        d_nfe = ctx_nfe["d"]
+        assert d_nfe["tp_nf"] == "1"
+        assert d_nfe["serie"] == "001"
+        assert d_nfe["emit"]["bairro"] == "DISTRITO INDUSTRIAL"
+        assert d_nfe["dest"]["bairro"] == "CENTRO"
+        assert d_nfe["transp"]["frete"] == "0-Emitente"
+        assert d_nfe["prot"]["num"] == "135260000001001"
+        assert "10/03/2026" in d_nfe["prot"]["data"]
+        assert len(d_nfe["dups"]) == 2
+        assert len(d_nfe["itens"]) == 2
+        assert d_nfe["itens"][0]["cst"] == "000"
+        assert d_nfe["itens"][0]["bc_icms"] == "1.000,00"
+        assert d_nfe["itens"][0]["p_icms"] == "18,00"
+        assert d_nfe["itens"][0]["p_ipi"] == "5,00"
+
+        xml_nfse = (PASTA_FIXTURES / "nfse_nacional_valida.xml").read_bytes()
+        res_nfse = processar_arquivo_xml(xml_nfse, "nfse_nacional_valida.xml")
+        ctx_nfse = montar_contexto_danfse(res_nfse, xml_bytes=xml_nfse)
+        d_nfse = ctx_nfse["d"]
+        assert d_nfse["numero_dps"] == "501"
+        assert d_nfse["serie_dps"] == "1"
+        assert d_nfse["prestador_simples"] == "Não Optante"
+        assert d_nfse["amb_ger"] == "Sistema Nacional NFS-e"
+        assert d_nfse["tp_amb"] == "Produção"
+        assert d_nfse["iss_tipo"] == "Operação Tributável"
+        assert d_nfse["iss_aliq_fmt"] == "5,00%"
+        assert d_nfse["fed_irrf_fmt"] == "30,00"
+        assert d_nfse["fed_csll_fmt"] == "20,00"
+        assert d_nfse["ibs"]["presente"] is True
+        assert d_nfse["ibs"]["v_ibs_tot_fmt"] == "20,00"
+        assert d_nfse["ibs"]["v_cbs_fmt"] == "18,00"
+        assert d_nfse["aprox_fed_fmt"] == "123,00"
+        assert d_nfse["aprox_mun_fmt"] == "100,00"
+
 
 class TestInterfaceWebEDanfeRoutes:
     """Testes de integração das rotas Web, lote de demonstração e espelhos DANFE/DANFSe."""
@@ -118,12 +156,24 @@ class TestInterfaceWebEDanfeRoutes:
         assert "btn-subtab-notas" in html
         assert "btn-subtab-resumo" in html
         assert "btn-subtab-ia" in html
+        for campo_sort in (
+            'data-sort="arquivo"',
+            'data-sort="tipo"',
+            'data-sort="numero"',
+            'data-sort="data_emissao"',
+            'data-sort="emitente"',
+            'data-sort="destinatario"',
+            'data-sort="valor_total"',
+            'data-sort="status"',
+        ):
+            assert campo_sort in html
         assert "/static/styles.css" in html
         assert "/static/app.js" in html
 
         resp_css = client.get("/static/styles.css")
         assert resp_css.status_code == 200
         assert "text/css" in resp_css.headers["content-type"]
+        assert "th.sortable" in resp_css.text
 
         resp_js = client.get("/static/app.js")
         assert resp_js.status_code == 200
@@ -139,13 +189,25 @@ class TestInterfaceWebEDanfeRoutes:
         # Localiza índices por arquivo_origem no lote demo
         mapa_indices = {r["arquivo_origem"]: idx for idx, r in enumerate(corpo["resultados"])}
 
-        # 1. DANFE NF-e 55 válida
+        # 1. DANFE NF-e 55 válida (padrão oficial completo com 14 colunas e transportador)
         idx_nfe = mapa_indices["nfe_55_valida.xml"]
         resp_danfe = client.get(f"/lote/{lote_id}/nota/{idx_nfe}/espelho")
         assert resp_danfe.status_code == 200
         assert "DANFE" in resp_danfe.text
         assert "<svg " in resp_danfe.text
         assert "11.222.333/0001-81" in resp_danfe.text
+        assert "0 - ENTRADA" in resp_danfe.text
+        assert "1 - SAÍDA" in resp_danfe.text
+        assert "Folha 1/1" in resp_danfe.text
+        assert "www.nfe.fazenda.gov.br/portal" in resp_danfe.text
+        assert "Transportador / Volumes transportados" in resp_danfe.text
+        assert "Código ANTT" in resp_danfe.text
+        assert "0-Emitente" in resp_danfe.text
+        assert "BC ICMS" in resp_danfe.text
+        assert "Alíq. ICMS" in resp_danfe.text
+        assert "Alíq. IPI" in resp_danfe.text
+        assert "Outras desp. acessórias" in resp_danfe.text
+        assert "Valor do IPI" in resp_danfe.text
 
         # 2. DANFE NF-e com CNPJ alfanumérico (Code 128-B)
         idx_alnum = mapa_indices["nfe_55_cnpj_alfanumerico.xml"]
@@ -167,12 +229,20 @@ class TestInterfaceWebEDanfeRoutes:
         assert resp_nfce.status_code == 200
         assert "65" in resp_nfce.text
 
-        # 5. DANFSe NFS-e Padrão Nacional (NT 008/2026)
+        # 5. DANFSe v2.0 NFS-e Padrão Nacional (NT 008/2026)
         idx_nfse = mapa_indices["nfse_nacional_valida.xml"]
         resp_danfse = client.get(f"/lote/{lote_id}/nota/{idx_nfse}/espelho")
         assert resp_danfse.status_code == 200
-        assert "DANFSe" in resp_danfse.text
+        assert "DANFSe v2.0" in resp_danfse.text
         assert "Documento Auxiliar da NFS-e" in resp_danfse.text
+        assert "NÚMERO DA DPS" in resp_danfse.text
+        assert "SÉRIE DA DPS" in resp_danfse.text
+        assert "Simples Nacional na Data de Competência" in resp_danfse.text
+        assert "Não Optante" in resp_danfse.text
+        assert "Tributação Municipal (ISSQN)" in resp_danfse.text
+        assert "Tributação Federal (Exceto CBS)" in resp_danfse.text
+        assert "Tributação IBS / CBS" in resp_danfse.text
+        assert "Lei nº 12.741/2012" in resp_danfse.text
         assert "IBS" in resp_danfse.text
 
         # 6. Download do XML original por chave e por índice

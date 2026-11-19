@@ -92,13 +92,13 @@ class TestInfraestruturaEDocumentacao:
         assert "2.16.76.1.3.3" in txt_en
         assert "16–18" in txt_en
 
-    def test_backlog_completo_com_todas_as_23_tarefas_concluidas(self) -> None:
+    def test_backlog_completo_com_todas_as_24_tarefas_concluidas(self) -> None:
         backlog_md = (RAIZ_PROJETO / "docs" / "BACKLOG.md").read_text(encoding="utf-8")
         marcados = [linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [x]")]
         pendentes = [
             linha for linha in backlog_md.splitlines() if linha.strip().startswith("- [ ]")
         ]
-        assert len(marcados) == 23
+        assert len(marcados) == 24
         assert len(pendentes) == 0
 
 

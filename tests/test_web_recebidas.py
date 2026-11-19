@@ -317,12 +317,16 @@ class TestRotasRecebidasSEFAZ:
     ) -> None:
         client.post("/api/recebidas/demo")
 
-        # Espelho DANFE de nota completa
+        # Espelho DANFE de nota completa (padrão oficial completo)
         resp_espelho = client.get(f"/recebidas/{CHAVE_NFE_1001}/espelho")
         assert resp_espelho.status_code == 200
         assert "text/html" in resp_espelho.headers["content-type"]
         assert "DANFE" in resp_espelho.text
         assert "11.222.333/0001-81" in resp_espelho.text
+        assert "0 - ENTRADA" in resp_espelho.text
+        assert "Transportador / Volumes transportados" in resp_espelho.text
+        assert "BC ICMS" in resp_espelho.text
+        assert "Alíq. ICMS" in resp_espelho.text
         assert f"/recebidas/{CHAVE_NFE_1001}/xml" in resp_espelho.text
 
         # Download XML descompactado a partir do SQLite
@@ -396,6 +400,15 @@ class TestRotasRecebidasSEFAZ:
         assert "btn-resetar-banco-sidebar" in html
         assert "btn-limpar-recebidas" in html
         assert "col-actions" in html
+        for campo_sort in (
+            'data-sort="nsu"',
+            'data-sort="data_emissao"',
+            'data-sort="numero"',
+            'data-sort="emitente"',
+            'data-sort="valor_total"',
+            'data-sort="situacao"',
+        ):
+            assert campo_sort in html
 
         resp_css = client.get("/static/styles.css")
         assert resp_css.status_code == 200

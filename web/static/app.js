@@ -8,6 +8,9 @@
     resultados: [],
     historicoLotes: [],
     subabaAtiva: "notas",
+    ordenacaoNotas: { campo: null, direcao: "asc" },
+    notasRecebidas: [],
+    ordenacaoRecebidas: { campo: null, direcao: "asc" },
   };
 
   const ROTULOS_ALERTA = {
@@ -51,6 +54,68 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+
+  const fmtDataCurta = (iso) => {
+    if (!iso) return "-";
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return "-";
+    return dt.toLocaleDateString("pt-BR");
+  };
+
+  const fmtDataHoraCompleta = (iso) => {
+    if (!iso) return "";
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return "";
+    return dt.toLocaleString("pt-BR");
+  };
+
+  const timestampIso = (iso) => {
+    if (!iso) return -Infinity;
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? -Infinity : ms;
+  };
+
+  const compararTexto = (a, b) =>
+    String(a || "").localeCompare(String(b || ""), "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+
+  const extrairNumeroOrdenavel = (valor) => {
+    const digitos = String(valor || "").replace(/\D/g, "");
+    if (!digitos) return null;
+    const n = Number(digitos);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const compararNumeroInteligente = (a, b) => {
+    const na = extrairNumeroOrdenavel(a);
+    const nb = extrairNumeroOrdenavel(b);
+    if (na !== null && nb !== null && na !== nb) return na - nb;
+    return compararTexto(a, b);
+  };
+
+  const pesoStatusValidacao = (res) => {
+    if (!res.valido) return 0;
+    const avisos = (res.alertas || []).length;
+    if (avisos > 0) return 100 - Math.min(avisos, 99);
+    return 200;
+  };
+
+  const atualizarIndicadoresOrdenacao = (seletorTabela, ord) => {
+    document.querySelectorAll(`${seletorTabela} thead th.sortable`).forEach((th) => {
+      const ind = th.querySelector(".sort-ind");
+      const ativo = th.dataset.sort === ord.campo;
+      th.classList.toggle("sort-active", ativo);
+      th.setAttribute(
+        "aria-sort",
+        ativo ? (ord.direcao === "asc" ? "ascending" : "descending") : "none"
+      );
+      if (ind) {
+        ind.textContent = ativo ? (ord.direcao === "asc" ? "▲" : "▼") : "⇅";
+      }
+    });
+  };
 
   const renderizarChaveComCopia = (chave) => {
     if (!chave) return "";
@@ -527,6 +592,52 @@
     return badges.join(" ");
   };
 
+  const ordenarItensNotas = (itens) => {
+    const { campo, direcao } = estado.ordenacaoNotas;
+    if (!campo) return itens;
+    const fator = direcao === "desc" ? -1 : 1;
+
+    return [...itens].sort((a, b) => {
+      const docA = a.res.documento;
+      const docB = b.res.documento;
+      let cmp = 0;
+
+      switch (campo) {
+        case "arquivo":
+          cmp = compararTexto(a.res.arquivo_origem, b.res.arquivo_origem);
+          break;
+        case "tipo":
+          cmp = compararTexto(docA ? docA.tipo : "ERRO_XML", docB ? docB.tipo : "ERRO_XML");
+          break;
+        case "numero":
+          cmp = compararNumeroInteligente(docA?.numero, docB?.numero);
+          break;
+        case "data_emissao":
+          cmp = timestampIso(docA?.data_emissao) - timestampIso(docB?.data_emissao);
+          break;
+        case "emitente":
+          cmp = compararTexto(docA?.emitente?.razao_social, docB?.emitente?.razao_social);
+          break;
+        case "destinatario":
+          cmp = compararTexto(docA?.destinatario?.razao_social, docB?.destinatario?.razao_social);
+          break;
+        case "valor_total":
+          cmp =
+            Number(docA?.totais?.valor_total_nota || 0) -
+            Number(docB?.totais?.valor_total_nota || 0);
+          break;
+        case "status":
+          cmp = pesoStatusValidacao(a.res) - pesoStatusValidacao(b.res);
+          break;
+        default:
+          cmp = 0;
+      }
+
+      if (cmp !== 0) return cmp * fator;
+      return a.idx - b.idx;
+    });
+  };
+
   const renderizarTabelaNotas = () => {
     const termo = (document.getElementById("filtro-busca")?.value || "").trim().toLowerCase();
     const filtroTipo = document.getElementById("filtro-tipo")?.value || "";
@@ -537,8 +648,8 @@
     const contadorEl = document.getElementById("lbl-contador-notas");
     if (!tbody) return;
 
-    const linhas = [];
     const totalBruto = estado.resultados.length;
+    const itensFiltrados = [];
 
     estado.resultados.forEach((res, idx) => {
       const doc = res.documento;
@@ -575,7 +686,18 @@
         if (!alvo.includes(termo)) return;
       }
 
+      itensFiltrados.push({ res, idx });
+    });
+
+    const itensOrdenados = ordenarItensNotas(itensFiltrados);
+    atualizarIndicadoresOrdenacao(".data-table-notas", estado.ordenacaoNotas);
+
+    const linhas = itensOrdenados.map(({ res, idx }) => {
+      const doc = res.documento;
+      const tipo = doc ? doc.tipo : "ERRO_XML";
       const numSerie = doc ? `${doc.numero || "-"} / ${doc.serie || "-"}` : "-";
+      const dataEmiCurta = fmtDataCurta(doc?.data_emissao);
+      const dataEmiCompleta = fmtDataHoraCompleta(doc?.data_emissao);
       const emitenteStr = doc
         ? `<strong class="parte-nome">${escaparHtml(doc.emitente.razao_social || "-")}</strong><code class="doc-code">${escaparHtml(fmtDoc(doc.emitente.documento))}</code>`
         : '<span class="muted">-</span>';
@@ -590,7 +712,7 @@
         ? `<a class="btn btn-sm btn-primary" href="/lote/${estado.loteId}/nota/${idx}/espelho" target="_blank" rel="noopener">${rotuloEspelho}</a>`
         : "";
 
-      linhas.push(`
+      return `
         <tr>
           <td class="col-arquivo">
             <strong class="arquivo-nome" title="${escaparHtml(res.arquivo_origem)}">${escaparHtml(res.arquivo_origem)}</strong>
@@ -598,6 +720,7 @@
           </td>
           <td class="col-tipo"><span class="badge badge-type">${escaparHtml(tipo)}</span></td>
           <td class="col-numero">${escaparHtml(numSerie)}</td>
+          <td class="col-emissao-nota" title="${escaparHtml(dataEmiCompleta)}">${escaparHtml(dataEmiCurta)}</td>
           <td class="col-parte">${emitenteStr}</td>
           <td class="col-parte">${destStr}</td>
           <td class="num col-valor"><strong>${valorTotal}</strong></td>
@@ -614,7 +737,7 @@
             </div>
           </td>
         </tr>
-      `);
+      `;
     });
 
     if (contadorEl) {
@@ -623,7 +746,7 @@
 
     tbody.innerHTML =
       linhas.join("") ||
-      '<tr><td colspan="8" style="text-align:center;" class="muted">Nenhum documento corresponde aos filtros aplicados.</td></tr>';
+      '<tr><td colspan="9" style="text-align:center;" class="muted">Nenhum documento corresponde aos filtros aplicados.</td></tr>';
   };
 
   const abrirModalDetalhes = (idx) => {
@@ -1024,6 +1147,88 @@
     return badges.join(" ");
   };
 
+  const ordenarNotasRecebidas = (notas) => {
+    const { campo, direcao } = estado.ordenacaoRecebidas;
+    if (!campo) return notas;
+    const fator = direcao === "desc" ? -1 : 1;
+
+    return [...notas].sort((a, b) => {
+      let cmp = 0;
+      switch (campo) {
+        case "nsu":
+          cmp = compararNumeroInteligente(a.nsu, b.nsu);
+          break;
+        case "data_emissao":
+          cmp = timestampIso(a.data_emissao) - timestampIso(b.data_emissao);
+          break;
+        case "numero":
+          cmp = compararNumeroInteligente(a.numero, b.numero);
+          break;
+        case "emitente":
+          cmp = compararTexto(a.emitente_nome, b.emitente_nome);
+          break;
+        case "valor_total":
+          cmp = Number(a.valor_total || 0) - Number(b.valor_total || 0);
+          break;
+        case "situacao":
+          cmp = compararTexto(a.situacao, b.situacao);
+          break;
+        default:
+          cmp = 0;
+      }
+      return cmp * fator;
+    });
+  };
+
+  const renderizarTabelaRecebidas = () => {
+    const tbody = document.getElementById("tbody-recebidas");
+    if (!tbody) return;
+
+    atualizarIndicadoresOrdenacao(".data-table-recebidas", estado.ordenacaoRecebidas);
+    const notas = ordenarNotasRecebidas(estado.notasRecebidas || []);
+
+    if (notas.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="7" style="text-align:center;" class="muted">Nenhuma nota recebida encontrada para os filtros selecionados.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = notas
+      .map((n) => {
+        const dtEmi = fmtDataCurta(n.data_emissao);
+        const dtEmiCompleta = fmtDataHoraCompleta(n.data_emissao);
+        const numSerie = n.numero ? `${n.numero} / ${n.serie || "-"}` : "Resumo s/ número";
+        const chaveUrl = encodeURIComponent(n.chave);
+        return `
+          <tr>
+            <td class="col-nsu"><code>${escaparHtml(n.nsu)}</code></td>
+            <td class="col-emissao" title="${escaparHtml(dtEmiCompleta)}">${escaparHtml(dtEmi)}</td>
+            <td class="col-num-chave">
+              <strong>${escaparHtml(numSerie)}</strong>
+              ${renderizarChaveComCopia(n.chave)}
+            </td>
+            <td class="col-parte-rec">
+              <strong class="parte-nome">${escaparHtml(n.emitente_nome || "-")}</strong>
+              <code class="doc-code">${escaparHtml(fmtDoc(n.emitente_documento))}</code>
+            </td>
+            <td class="num col-valor-rec"><strong>${fmtMoeda(n.valor_total)}</strong></td>
+            <td class="col-sit-rec"><div class="badges-wrap">${renderizarBadgesRecebida(n)}</div></td>
+            <td class="col-actions">
+              <div class="row-actions">
+                <a class="btn btn-sm btn-primary" href="/recebidas/${chaveUrl}/espelho" target="_blank" rel="noopener">
+                  📄 DANFE
+                </a>
+                <a class="btn btn-sm btn-ghost" href="/recebidas/${chaveUrl}/xml" download>
+                  ⬇ XML
+                </a>
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+  };
+
   const carregarListaRecebidas = async () => {
     const tbody = document.getElementById("tbody-recebidas");
     if (!tbody) return;
@@ -1058,48 +1263,8 @@
       if (kpiTotal) kpiTotal.textContent = String(dados.total || 0);
       if (kpiValor) kpiValor.textContent = fmtMoedaRS(dados.valor_total_filtrado || 0);
 
-      const notas = dados.notas || [];
-      if (notas.length === 0) {
-        tbody.innerHTML =
-          '<tr><td colspan="7" style="text-align:center;" class="muted">Nenhuma nota recebida encontrada para os filtros selecionados.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = notas
-        .map((n) => {
-          const dtEmi = n.data_emissao
-            ? new Date(n.data_emissao).toLocaleDateString("pt-BR")
-            : "-";
-          const numSerie = n.numero ? `${n.numero} / ${n.serie || "-"}` : "Resumo s/ número";
-          const chaveUrl = encodeURIComponent(n.chave);
-          return `
-            <tr>
-              <td class="col-nsu"><code>${escaparHtml(n.nsu)}</code></td>
-              <td class="col-emissao">${escaparHtml(dtEmi)}</td>
-              <td class="col-num-chave">
-                <strong>${escaparHtml(numSerie)}</strong>
-                ${renderizarChaveComCopia(n.chave)}
-              </td>
-              <td class="col-parte-rec">
-                <strong class="parte-nome">${escaparHtml(n.emitente_nome || "-")}</strong>
-                <code class="doc-code">${escaparHtml(fmtDoc(n.emitente_documento))}</code>
-              </td>
-              <td class="num col-valor-rec"><strong>${fmtMoeda(n.valor_total)}</strong></td>
-              <td class="col-sit-rec"><div class="badges-wrap">${renderizarBadgesRecebida(n)}</div></td>
-              <td class="col-actions">
-                <div class="row-actions">
-                  <a class="btn btn-sm btn-primary" href="/recebidas/${chaveUrl}/espelho" target="_blank" rel="noopener">
-                    📄 DANFE
-                  </a>
-                  <a class="btn btn-sm btn-ghost" href="/recebidas/${chaveUrl}/xml" download>
-                    ⬇ XML
-                  </a>
-                </div>
-              </td>
-            </tr>
-          `;
-        })
-        .join("");
+      estado.notasRecebidas = dados.notas || [];
+      renderizarTabelaRecebidas();
     } catch (err) {
       definirStatusRecebidas(`Erro ao listar notas recebidas: ${err.message}`, true);
     }
@@ -1367,6 +1532,36 @@
       if (!el) return;
       el.addEventListener("input", renderizarTabelaNotas);
       el.addEventListener("change", renderizarTabelaNotas);
+    });
+
+    document.querySelector(".data-table-notas thead")?.addEventListener("click", (e) => {
+      const th = e.target.closest("th.sortable[data-sort]");
+      if (!th) return;
+      const campo = th.dataset.sort;
+      if (estado.ordenacaoNotas.campo === campo) {
+        estado.ordenacaoNotas.direcao =
+          estado.ordenacaoNotas.direcao === "asc" ? "desc" : "asc";
+      } else {
+        estado.ordenacaoNotas.campo = campo;
+        estado.ordenacaoNotas.direcao =
+          campo === "data_emissao" || campo === "valor_total" ? "desc" : "asc";
+      }
+      renderizarTabelaNotas();
+    });
+
+    document.querySelector(".data-table-recebidas thead")?.addEventListener("click", (e) => {
+      const th = e.target.closest("th.sortable[data-sort]");
+      if (!th) return;
+      const campo = th.dataset.sort;
+      if (estado.ordenacaoRecebidas.campo === campo) {
+        estado.ordenacaoRecebidas.direcao =
+          estado.ordenacaoRecebidas.direcao === "asc" ? "desc" : "asc";
+      } else {
+        estado.ordenacaoRecebidas.campo = campo;
+        estado.ordenacaoRecebidas.direcao =
+          campo === "data_emissao" || campo === "valor_total" ? "desc" : "asc";
+      }
+      renderizarTabelaRecebidas();
     });
 
     document.getElementById("tbody-notas")?.addEventListener("click", (e) => {

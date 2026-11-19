@@ -714,7 +714,7 @@ def renderizar_espelho_nota(
     """Renderiza o espelho A4 imprimível (DANFE NF-e/NFC-e ou DANFSe NT 008/2026)."""
     lote = _resolver_lote_ou_acervo(lote_id)
 
-    _, resultado = _localizar_nota_no_lote(lote, identificador)
+    indice, resultado = _localizar_nota_no_lote(lote, identificador)
     if resultado.documento is None:
         raise HTTPException(
             status_code=400,
@@ -724,11 +724,17 @@ def renderizar_espelho_nota(
             ),
         )
 
+    xml_bytes = (
+        lote.xmls_brutos.get(identificador.strip())
+        or lote.xmls_brutos.get(limpar_chave_acesso(identificador))
+        or lote.xmls_brutos.get(str(indice))
+    )
+
     if resultado.documento.tipo == "NFSE":
-        contexto = montar_contexto_danfse(resultado)
+        contexto = montar_contexto_danfse(resultado, xml_bytes=xml_bytes)
         nome_template = "danfse.html"
     else:
-        contexto = montar_contexto_danfe(resultado)
+        contexto = montar_contexto_danfe(resultado, xml_bytes=xml_bytes)
         nome_template = "danfe.html"
 
     contexto["lote_id"] = lote.lote_id
@@ -1099,10 +1105,10 @@ def renderizar_espelho_nota_recebida(request: Request, chave: str) -> HTMLRespon
         )
 
     if resultado.documento.tipo == "NFSE":
-        contexto = montar_contexto_danfse(resultado)
+        contexto = montar_contexto_danfse(resultado, xml_bytes=xml_bytes)
         nome_template = "danfse.html"
     else:
-        contexto = montar_contexto_danfe(resultado)
+        contexto = montar_contexto_danfe(resultado, xml_bytes=xml_bytes)
         nome_template = "danfe.html"
 
     contexto["lote_id"] = "recebidas"
