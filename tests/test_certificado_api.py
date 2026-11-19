@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,6 +25,7 @@ from api.app import (
 from sefaz import (
     NOME_ARQUIVO_CONFIG_FIXO,
     NOME_ARQUIVO_PFX_FIXO,
+    NOME_ARQUIVO_SENHA_DPAPI,
     NOME_ARQUIVO_SENHA_FIXO,
     OID_ICP_BRASIL_CNPJ,
     RepositorioDistDFeSQLite,
@@ -84,8 +86,12 @@ def _gerar_pfx_sintetico(
 
 
 @pytest.fixture()
-def cert_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path, None, None]:
+def cert_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Generator[Path, None, None]:
     """Configura diretório isolado para o certificado A1 e banco SQLite em `tmp_path`."""
+    if sys.platform != "win32":
+        request.getfixturevalue("dpapi_falso")
     monkeypatch.delenv("NFE_CERT_PATH", raising=False)
     monkeypatch.delenv("NFE_CERT_SENHA", raising=False)
     pasta_cert = tmp_path / "certificado_local"
@@ -155,7 +161,8 @@ class TestCadastroVisualCertificadoA1:
 
         # Verifica arquivos gravados no disco com nomes fixos seguros
         assert (cert_dir / NOME_ARQUIVO_PFX_FIXO).is_file()
-        assert (cert_dir / NOME_ARQUIVO_SENHA_FIXO).is_file()
+        assert (cert_dir / NOME_ARQUIVO_SENHA_DPAPI).is_file()
+        assert not (cert_dir / NOME_ARQUIVO_SENHA_FIXO).exists()
         assert (cert_dir / NOME_ARQUIVO_CONFIG_FIXO).is_file()
         assert (cert_dir / NOME_ARQUIVO_PFX_FIXO).read_bytes() == pfx_bytes
         assert not (cert_dir.parent.parent / "tentativa_traversal_maliciosa.pfx").exists()

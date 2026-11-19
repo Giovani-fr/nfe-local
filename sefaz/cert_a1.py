@@ -16,13 +16,16 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 from pydantic import BaseModel, ConfigDict
 
 from models.normalizadores import limpar_documento
+from sefaz import segredos
 
 OID_ICP_BRASIL_CNPJ = "2.16.76.1.3.3"
 OID_ICP_BRASIL_CPF_RESPONSAVEL = "2.16.76.1.3.1"
 
-DIRETORIO_CERTIFICADO_PADRAO = "data/certificado"
+# Formato antigo (inseguro): pasta dentro do projeto, com a senha em texto puro (`senha.txt`).
+DIRETORIO_CERTIFICADO_LEGADO = Path(__file__).resolve().parent.parent / "data" / "certificado"
 NOME_ARQUIVO_PFX_FIXO = "certificado.pfx"
-NOME_ARQUIVO_SENHA_FIXO = "senha.txt"
+NOME_ARQUIVO_SENHA_FIXO = "senha.txt"  # legado: texto puro, nunca mais gravado
+NOME_ARQUIVO_SENHA_DPAPI = "senha.dpapi"  # senha cifrada pela DPAPI (usuario atual)
 NOME_ARQUIVO_CONFIG_FIXO = "config.json"
 
 _RE_CNPJ_FORMATADO_OU_PURO = re.compile(
@@ -217,11 +220,44 @@ def carregar_certificado_de_env() -> tuple[bytes, str, MetadadosCertificado]:
 
 
 def resolver_diretorio_certificado(cert_dir: str | Path | None = None) -> Path:
-    """Resolve o diretório local do certificado (`data/certificado` ou `NFE_CERT_DIR`)."""
+    """Resolve a pasta do certificado: argumento, `NFE_CERT_DIR` ou `<NFE_DATA_DIR>/certificado`.
+
+    O padrão fica fora do projeto (`%LOCALAPPDATA%\\nfe-local\\certificado` no Windows).
+    """
     if cert_dir is not None:
         return Path(cert_dir)
     env_dir = os.environ.get("NFE_CERT_DIR", "").strip()
-    return Path(env_dir if env_dir else DIRETORIO_CERTIFICADO_PADRAO)
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return segredos.diretorio_certificado_padrao()
+
+
+def _senha_env() -> str | None:
+    valor = os.environ.get("NFE_CERT_SENHA")
+    return valor if valor else None
+
+
+def _ler_senha_salva(pasta: Path) -> str | None:
+    """Senha do cadastro local: `senha.dpapi` (decifrada) ou, na falta dele, `NFE_CERT_SENHA`."""
+    arq = pasta / NOME_ARQUIVO_SENHA_DPAPI
+    if arq.is_file():
+        try:
+            return segredos.desproteger_senha(arq.read_bytes())
+        except (OSError, segredos.ErroProtecaoSenha, UnicodeDecodeError) as exc:
+            raise ErroCertificadoA1(
+                "Não foi possível recuperar a senha protegida do certificado (DPAPI). "
+                "Ela só pode ser lida pelo mesmo usuário do Windows que a cadastrou. "
+                f"Cadastre o certificado novamente. Detalhe: {type(exc).__name__}"
+            ) from exc
+    return _senha_env()
+
+
+def protecao_da_senha(cert_dir: str | Path | None = None) -> Literal["dpapi", "env", "nenhuma"]:
+    """Como a senha do cadastro local está guardada (sem revelá-la)."""
+    pasta = resolver_diretorio_certificado(cert_dir)
+    if (pasta / NOME_ARQUIVO_SENHA_DPAPI).is_file():
+        return "dpapi"
+    return "env" if _senha_env() else "nenhuma"
 
 
 def _validar_uf_autor(uf_autor: str) -> str:
@@ -260,7 +296,7 @@ def ler_config_sefaz_local(cert_dir: str | Path | None = None) -> ConfigCertific
     pasta = resolver_diretorio_certificado(cert_dir)
     arq_cfg = pasta / NOME_ARQUIVO_CONFIG_FIXO
     arq_pfx = pasta / NOME_ARQUIVO_PFX_FIXO
-    arq_senha = pasta / NOME_ARQUIVO_SENHA_FIXO
+    arq_senha = pasta / NOME_ARQUIVO_SENHA_DPAPI
 
     uf_padrao = _uf_de_env()
     amb_padrao: Literal[1, 2] = _ambiente_de_env()
@@ -279,7 +315,7 @@ def ler_config_sefaz_local(cert_dir: str | Path | None = None) -> ConfigCertific
         except (OSError, ValueError, TypeError):
             pass
 
-    if arq_pfx.is_file() and arq_senha.is_file():
+    if arq_pfx.is_file() and (arq_senha.is_file() or _senha_env()):
         origem: Literal["interface", "env", "nao_configurado"] = "interface"
     elif os.environ.get("NFE_CERT_PATH", "").strip():
         origem = "env"
@@ -306,10 +342,22 @@ def salvar_certificado_local(
     amb_validado = _validar_ambiente_sefaz(ambiente)
 
     pasta = resolver_diretorio_certificado(cert_dir)
-    pasta.mkdir(parents=True, exist_ok=True)
 
+    # Protege a senha ANTES de gravar qualquer coisa; sem DPAPI a senha não vai para o disco.
+    senha_protegida: bytes | None = None
+    if segredos.dpapi_disponivel():
+        try:
+            senha_protegida = segredos.proteger_senha(senha)
+        except segredos.ErroProtecaoSenha as exc:
+            raise ErroCertificadoA1(f"Não foi possível proteger a senha: {exc}") from exc
+
+    pasta.mkdir(parents=True, exist_ok=True)
     (pasta / NOME_ARQUIVO_PFX_FIXO).write_bytes(pfx_bytes)
-    (pasta / NOME_ARQUIVO_SENHA_FIXO).write_text(senha, encoding="utf-8")
+    if senha_protegida is not None:
+        (pasta / NOME_ARQUIVO_SENHA_DPAPI).write_bytes(senha_protegida)
+    else:
+        (pasta / NOME_ARQUIVO_SENHA_DPAPI).unlink(missing_ok=True)
+    (pasta / NOME_ARQUIVO_SENHA_FIXO).unlink(missing_ok=True)  # nunca deixar texto puro
     (pasta / NOME_ARQUIVO_CONFIG_FIXO).write_text(
         json.dumps(
             {"uf_autor": uf_validada, "ambiente": amb_validado},
@@ -352,16 +400,15 @@ def atualizar_config_sefaz_local(
 
 
 def remover_certificado_local(cert_dir: str | Path | None = None) -> bool:
-    """Remove `certificado.pfx` e `senha.txt` do diretório local. Retorna `True` se existiam."""
+    """Remove `certificado.pfx` e a senha (`senha.dpapi`/`senha.txt`); `True` se existiam."""
     pasta = resolver_diretorio_certificado(cert_dir)
     arq_pfx = pasta / NOME_ARQUIVO_PFX_FIXO
-    arq_senha = pasta / NOME_ARQUIVO_SENHA_FIXO
+    arqs_senha = (pasta / NOME_ARQUIVO_SENHA_DPAPI, pasta / NOME_ARQUIVO_SENHA_FIXO)
 
-    havia_certificado = arq_pfx.is_file() or arq_senha.is_file()
-    if arq_pfx.is_file():
-        arq_pfx.unlink()
-    if arq_senha.is_file():
-        arq_senha.unlink()
+    havia_certificado = arq_pfx.is_file() or any(a.is_file() for a in arqs_senha)
+    arq_pfx.unlink(missing_ok=True)
+    for arq in arqs_senha:
+        arq.unlink(missing_ok=True)
 
     return havia_certificado
 
@@ -372,17 +419,21 @@ def carregar_certificado_configurado(
     """Carrega o certificado priorizando o cadastro via interface (`cert_dir`) e fallback `.env`."""
     pasta = resolver_diretorio_certificado(cert_dir)
     arq_pfx = pasta / NOME_ARQUIVO_PFX_FIXO
-    arq_senha = pasta / NOME_ARQUIVO_SENHA_FIXO
     config_local = ler_config_sefaz_local(cert_dir)
 
-    if arq_pfx.is_file() and arq_senha.is_file():
+    if arq_pfx.is_file():
         try:
             pfx_bytes = arq_pfx.read_bytes()
-            senha = arq_senha.read_text(encoding="utf-8")
         except OSError as exc:
             raise ErroCertificadoA1(
                 f"Erro ao ler o certificado salvo localmente em '{pasta}': {exc}"
             ) from exc
+        senha = _ler_senha_salva(pasta)
+        if senha is None:
+            raise ErroCertificadoA1(
+                "Certificado cadastrado, mas a senha não está disponível: este sistema não tem "
+                "DPAPI. Defina a variável de ambiente NFE_CERT_SENHA."
+            )
 
         metadados = extrair_metadados_certificado(pfx_bytes, senha)
         config = ConfigCertificadoSEFAZ(
@@ -399,3 +450,74 @@ def carregar_certificado_configurado(
         origem="env",
     )
     return pfx_bytes, senha, metadados, config
+
+
+# --- Migração do formato antigo (`data/certificado/` com `senha.txt` em texto puro) -----------
+
+
+def detectar_cadastro_legado(legado_dir: str | Path | None = None) -> Path | None:
+    """Retorna a pasta antiga se ela tiver `certificado.pfx` + `senha.txt` (não lê o conteúdo)."""
+    pasta = Path(legado_dir) if legado_dir is not None else DIRETORIO_CERTIFICADO_LEGADO
+    try:
+        tem_pfx = (pasta / NOME_ARQUIVO_PFX_FIXO).is_file()
+        tem_senha = (pasta / NOME_ARQUIVO_SENHA_FIXO).is_file()
+    except OSError:
+        return None
+    return pasta if (tem_pfx and tem_senha) else None
+
+
+def _apagar_arquivo(caminho: Path) -> None:
+    """Sobrescreve com zeros (melhor esforço) e apaga o arquivo."""
+    try:
+        tamanho = caminho.stat().st_size
+        with caminho.open("r+b") as fh:
+            fh.write(b"\0" * tamanho)
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError:
+        pass
+    caminho.unlink(missing_ok=True)
+
+
+def migrar_cadastro_legado(
+    legado_dir: str | Path | None = None,
+    cert_dir: str | Path | None = None,
+) -> tuple[MetadadosCertificado, ConfigCertificadoSEFAZ]:
+    """Move o cadastro antigo para o novo local, protege a senha e apaga o `senha.txt` antigo.
+
+    A senha é lida apenas em memória, nunca é impressa nem registrada em log. Em caso de erro
+    (DPAPI indisponível, senha inválida), nada é apagado.
+    """
+    origem = detectar_cadastro_legado(legado_dir)
+    if origem is None:
+        raise ErroCertificadoA1("Nenhum cadastro no formato antigo foi encontrado.")
+    destino = resolver_diretorio_certificado(cert_dir)
+    if origem.resolve() == destino.resolve():
+        raise ErroCertificadoA1("O cadastro antigo já está na pasta de destino.")
+    if not segredos.dpapi_disponivel():
+        raise ErroCertificadoA1(
+            "Migração indisponível sem DPAPI (não é Windows). Defina NFE_CERT_SENHA e "
+            "mova o .pfx manualmente; o senha.txt antigo não foi apagado."
+        )
+
+    try:
+        pfx_bytes = (origem / NOME_ARQUIVO_PFX_FIXO).read_bytes()
+        senha = (origem / NOME_ARQUIVO_SENHA_FIXO).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ErroCertificadoA1(f"Erro ao ler o cadastro antigo: {type(exc).__name__}") from exc
+
+    cfg_antiga = ler_config_sefaz_local(origem)
+    metadados, config = salvar_certificado_local(
+        pfx_bytes,
+        senha,
+        uf_autor=cfg_antiga.uf_autor,
+        ambiente=cfg_antiga.ambiente,
+        cert_dir=destino,
+    )
+    del senha
+
+    for nome in (NOME_ARQUIVO_SENHA_FIXO, NOME_ARQUIVO_PFX_FIXO, NOME_ARQUIVO_CONFIG_FIXO):
+        arq = origem / nome
+        if arq.is_file():
+            _apagar_arquivo(arq)
+    return metadados, config
