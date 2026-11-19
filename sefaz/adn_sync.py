@@ -6,7 +6,7 @@ Só roda por ação explícita do usuário (CLI ou botão): este módulo nunca a
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from parsers.nfse_nacional import parse_nfse_nacional
 from parsers.xml_seguro import ErroParseXML
 from sefaz.adn import (
+    ESPERAS_RETENTATIVA_PADRAO,
+    TENTATIVAS_PADRAO,
     TIPOS_DOCUMENTO_GUARDADOS,
     ErroADN,
     ErroBloqueioADN,
@@ -22,6 +24,7 @@ from sefaz.adn import (
     ItemADN,
     RespostaADN,
     calcular_papel,
+    mensagem_falha_conexao,
     mensagem_rejeicao,
 )
 from sefaz.descompactador import (
@@ -53,6 +56,8 @@ class ResumoSyncADN(BaseModel):
     papeis: dict[str, int] = Field(default_factory=dict)
     encerrado_por: EncerradoPor = "FILA_ZERADA"
     mensagem: str = ""
+    tentativas_usadas: int = 0
+    falhas_conexao: list[str] = Field(default_factory=list)
 
 
 def verificar_janela_adn(cursor: EstadoCursorADN, agora: datetime) -> None:
@@ -134,6 +139,45 @@ def _processar_item(
         resumo.eventos_registrados += 1
 
 
+def _descrever_falha(exc: ErroADN, pagina: int, tentativa: int) -> str:
+    """Só etapa e classe da exceção: nunca URL, CNPJ, caminho, senha nem XML."""
+    falha = exc.falha
+    etapa = falha.etapa if falha else "não identificada"
+    classe = falha.excecao_raiz if falha else type(exc).__name__
+    return f"pág. {pagina + 1}, tentativa {tentativa + 1}: {etapa} [{classe}]"
+
+
+def _consultar_com_repeticao(
+    consultar_fn: Callable[[int], RespostaADN],
+    nsu: int,
+    *,
+    pagina: int,
+    tentativas: int,
+    esperas: Sequence[float],
+    dormir: Callable[[float], None],
+    resumo: ResumoSyncADN,
+) -> tuple[RespostaADN | None, ErroADN | None, int]:
+    """Repete só falhas de CONEXAO (GET idempotente). Devolve `(resposta, erro, tentativas)`.
+
+    Resposta HTTP válida (200/400/403/404...), 429, 5xx e certificado inválido não repetem.
+    """
+    usadas = 0
+    for k in range(max(1, tentativas)):
+        if k > 0 and esperas:
+            dormir(esperas[min(k - 1, len(esperas) - 1)])
+        usadas += 1
+        resumo.tentativas_usadas += 1
+        try:
+            return consultar_fn(nsu), None, usadas
+        except ErroADN as exc:
+            if exc.categoria != "CONEXAO":
+                return None, exc, usadas
+            resumo.falhas_conexao.append(_descrever_falha(exc, pagina, k))
+            if k == max(1, tentativas) - 1:
+                return None, exc, usadas
+    raise AssertionError("inalcançável")  # pragma: no cover
+
+
 def sincronizar_adn(
     consultar_fn: Callable[[int], RespostaADN],
     repo: RepositorioDistDFeSQLite,
@@ -142,7 +186,9 @@ def sincronizar_adn(
     ambiente: Literal[1, 2] = 2,
     max_paginas: int = MAX_PAGINAS_PADRAO,
     espera_segundos: float = ESPERA_ENTRE_CHAMADAS_PADRAO,
-    dormir_fn: Callable[[float], None] = time.sleep,
+    dormir_fn: Callable[[float], None] | None = None,
+    tentativas: int = TENTATIVAS_PADRAO,
+    esperas_retentativa: Sequence[float] = ESPERAS_RETENTATIVA_PADRAO,
     relogio_fn: Callable[[], datetime] | None = None,
     max_bytes_xml: int = MAX_BYTES_XML_DOC_ZIP_PADRAO,
 ) -> ResumoSyncADN:
@@ -153,24 +199,39 @@ def sincronizar_adn(
 
     resumo = ResumoSyncADN(cursor=cursor)
     status_final = ""
+    dormir: Callable[[float], None] = dormir_fn or time.sleep
 
     for pagina in range(max(1, max_paginas)):
         if pagina > 0 and espera_segundos > 0:
-            dormir_fn(espera_segundos)
+            dormir(espera_segundos)
         agora = agora_fn()
-        try:
-            resposta = consultar_fn(cursor.ultimo_nsu)
-        except ErroADN as exc:
+        resposta, exc, usadas = _consultar_com_repeticao(
+            consultar_fn,
+            cursor.ultimo_nsu,
+            pagina=pagina,
+            tentativas=tentativas,
+            esperas=esperas_retentativa,
+            dormir=dormir,
+            resumo=resumo,
+        )
+        if exc is not None or resposta is None:
+            if exc is None:
+                exc = ErroADN("Falha inesperada.", categoria="RESPOSTA_INVALIDA")
             resumo.paginas_consultadas += 1
             cursor.ultima_consulta = agora
             cursor.ultimo_status = exc.categoria
-            cursor.ultimo_motivo = str(exc)
+            mensagem = (
+                mensagem_falha_conexao(exc.falha, usadas)
+                if exc.categoria == "CONEXAO" and exc.falha is not None
+                else str(exc)
+            )
+            cursor.ultimo_motivo = mensagem
             if exc.retry_apos_segundos:
                 cursor.bloqueado_ate = agora + timedelta(seconds=exc.retry_apos_segundos)
                 resumo.encerrado_por = "BLOQUEIO"
             else:
                 resumo.encerrado_por = "ERRO"
-            resumo.mensagem = str(exc)
+            resumo.mensagem = mensagem
             status_final = exc.categoria
             repo.salvar_cursor_adn(cursor)
             break
@@ -231,5 +292,7 @@ def sincronizar_adn(
         ultimo_nsu=str(cursor.ultimo_nsu),
         ts=agora_fn(),
         origem="NFSE",
+        tentativas=max(1, resumo.tentativas_usadas),
+        falhas_conexao="; ".join(resumo.falhas_conexao),
     )
     return resumo
