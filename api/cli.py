@@ -13,7 +13,14 @@ from models.fiscal import ResultadoAnalise
 from parsers.detector import iterar_lote
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
-from sefaz.cert_a1 import ErroCertificadoA1, carregar_certificado_de_env
+from sefaz.adn import ClienteADN, ErroBloqueioADN
+from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
+from sefaz.adn_sync import MAX_PAGINAS_PADRAO, ResumoSyncADN, sincronizar_adn
+from sefaz.cert_a1 import (
+    ErroCertificadoA1,
+    carregar_certificado_configurado,
+    carregar_certificado_de_env,
+)
 from sefaz.controle_nsu import ErroBloqueioSEFAZ, EstadoCursorNSU
 from sefaz.dist_dfe import (
     ClienteNFeDistribuicaoDFe,
@@ -129,6 +136,42 @@ def criar_parser() -> argparse.ArgumentParser:
         dest="saida_json",
         action="store_true",
         help="Imprime na saída padrão o JSON estruturado (ResumoExecucaoSync).",
+    )
+
+    parser_adn = subparsers.add_parser(
+        "sincronizar-adn",
+        help="Busca NFS-e (emitidas e tomadas) do CNPJ do certificado no ADN Nacional.",
+    )
+    parser_adn.add_argument(
+        "--db",
+        dest="caminho_db",
+        default=None,
+        metavar="ARQUIVO.db",
+        help="Caminho do banco SQLite local (padrão: data/nfe_recebidas.db).",
+    )
+    parser_adn.add_argument(
+        "--ambiente",
+        type=int,
+        choices=(1, 2),
+        default=None,
+        help="Ambiente: 1=Produção, 2=Produção restrita (padrão: o cadastrado, ou 2).",
+    )
+    parser_adn.add_argument(
+        "--max-paginas",
+        type=int,
+        default=MAX_PAGINAS_PADRAO,
+        help=f"Máximo de páginas por execução (padrão: {MAX_PAGINAS_PADRAO}).",
+    )
+    parser_adn.add_argument(
+        "--demo",
+        action="store_true",
+        help="Carrega NFS-e sintéticas (emitidas, tomadas, uma cancelada) sem rede.",
+    )
+    parser_adn.add_argument(
+        "--json",
+        dest="saida_json",
+        action="store_true",
+        help="Imprime na saída padrão o JSON estruturado do resumo.",
     )
 
     parser_reset = subparsers.add_parser(
@@ -339,6 +382,68 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
     return 0
 
 
+def _imprimir_resumo_adn_terminal(resumo: ResumoSyncADN) -> None:
+    nome_amb = "Produção" if resumo.cursor.ambiente == 1 else "Produção restrita"
+    print("=" * 64)
+    print(f"nfe-local v{__version__} — Sincronização NFS-e (ADN Nacional)")
+    print("=" * 64)
+    print(f"Ambiente                        : {resumo.cursor.ambiente} ({nome_amb})")
+    print(f"Páginas consultadas             : {resumo.paginas_consultadas}")
+    print(f"Documentos recebidos            : {resumo.documentos_recebidos}")
+    print(f"  - Novas NFS-e                 : {resumo.novas_notas}")
+    print(f"  - NFS-e atualizadas           : {resumo.notas_atualizadas}")
+    print(f"  - Eventos registrados         : {resumo.eventos_registrados}")
+    for tipo, qtd in sorted(resumo.ignorados_por_tipo.items()):
+        print(f"  - Ignorados ({tipo})".ljust(34) + f": {qtd}")
+    if resumo.com_erro_processamento:
+        print(f"  - Com erro de leitura         : {resumo.com_erro_processamento}")
+    for papel, qtd in sorted(resumo.papeis.items()):
+        print(f"  - Papel {papel}".ljust(34) + f": {qtd}")
+    print(f"Cursor NSU (ADN)                : {resumo.cursor.ultimo_nsu}")
+    print(f"Encerrado por                   : {resumo.encerrado_por}")
+    if resumo.mensagem:
+        print(f"Mensagem                        : {resumo.mensagem}")
+    print("=" * 64)
+
+
+def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
+    repo = RepositorioDistDFeSQLite(args.caminho_db)
+
+    if args.demo:
+        amb = resolver_ambiente_sefaz(args.ambiente)
+        resumo = sincronizar_adn(
+            criar_consultor_demo(amb),
+            repo,
+            documento_alvo=CNPJ_DEMO,
+            ambiente=amb,
+            espera_segundos=0,
+            max_paginas=args.max_paginas,
+        )
+    else:
+        try:
+            pfx_bytes, senha, _, config = carregar_certificado_configurado()
+            amb = resolver_ambiente_sefaz(
+                args.ambiente if args.ambiente is not None else config.ambiente
+            )
+            cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb)
+            resumo = sincronizar_adn(
+                cliente.consultar_nsu,
+                repo,
+                documento_alvo=cliente.cnpj_consulta,
+                ambiente=amb,
+                max_paginas=args.max_paginas,
+            )
+        except (ErroCertificadoA1, ErroBloqueioADN, ValueError) as exc:
+            print(f"Erro: {exc}", file=sys.stderr)
+            return 1
+
+    if args.saida_json:
+        print(json.dumps(resumo.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    else:
+        _imprimir_resumo_adn_terminal(resumo)
+    return 0 if resumo.encerrado_por in ("FILA_ZERADA", "LIMITE_PAGINAS") else 1
+
+
 def _confirmar_reset(caminho_db: Path) -> bool:
     """Pede confirmação explícita (a pergunta vai para o stderr, mantendo o stdout limpo)."""
     sys.stderr.write(
@@ -391,6 +496,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _executar_servidor(args)
     if args.subcomando == "sincronizar-sefaz":
         return _executar_sincronizar_sefaz(args)
+    if args.subcomando == "sincronizar-adn":
+        return _executar_sincronizar_adn(args)
     if args.subcomando == "resetar-banco":
         return _executar_resetar_banco(args)
 

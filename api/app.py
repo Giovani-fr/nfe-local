@@ -34,6 +34,9 @@ from reports.assistente_lote import (
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
+from sefaz.adn import ClienteADN, ErroBloqueioADN, RespostaADN
+from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
+from sefaz.adn_sync import ResumoSyncADN, sincronizar_adn
 from sefaz.cert_a1 import (
     ConfigCertificadoSEFAZ,
     ErroCertificadoA1,
@@ -262,6 +265,7 @@ _REPOSITORIO_LOTES = RepositorioLotesMemoria()
 _SERVICO_ASSISTENTE = ServicoAssistenteLote()
 _REPOSITORIO_RECEBIDAS: RepositorioDistDFeSQLite | None = None
 _CONSULTOR_DIST_DFE: Callable[[str], RespostaDistDFe] | None = None
+_CONSULTOR_ADN: tuple[Callable[[int], RespostaADN], str] | None = None
 _DIRETORIO_CERTIFICADO: Path | None = None
 
 
@@ -299,6 +303,14 @@ def definir_consultor_dist_dfe(fn: Callable[[str], RespostaDistDFe] | None) -> N
     """Injeta uma função `(ult_nsu) -> RespostaDistDFe` para testes offline de sincronização."""
     global _CONSULTOR_DIST_DFE
     _CONSULTOR_DIST_DFE = fn
+
+
+def definir_consultor_adn(
+    fn: Callable[[int], RespostaADN] | None, documento_alvo: str = CNPJ_DEMO
+) -> None:
+    """Injeta `(nsu) -> RespostaADN` e o documento consultado, para testes offline do ADN."""
+    global _CONSULTOR_ADN
+    _CONSULTOR_ADN = (fn, documento_alvo) if fn is not None else None
 
 
 def obter_diretorio_certificado() -> Path:
@@ -1046,6 +1058,53 @@ def sincronizar_recebidas_sefaz(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.post("/api/recebidas/sincronizar-adn", response_model=ResumoSyncADN)
+def sincronizar_recebidas_adn(
+    ambiente: int | None = Query(default=None, description="1=Produção, 2=Produção restrita"),
+    demo: bool = Query(default=False, description="Usa NFS-e sintéticas, sem rede"),
+    max_paginas: int = Query(default=20, ge=1, le=200),
+) -> ResumoSyncADN:
+    """Busca NFS-e (emitidas e tomadas) no ADN Nacional. Só roda quando chamado pelo usuário."""
+    cert_dir = obter_diretorio_certificado()
+    config_local = ler_config_sefaz_local(cert_dir)
+    amb: Literal[1, 2] = (
+        resolver_ambiente_sefaz(ambiente) if ambiente is not None else config_local.ambiente
+    )
+    repo = obter_repositorio_recebidas()
+
+    if demo:
+        consultar_fn, documento_alvo, espera = criar_consultor_demo(amb), CNPJ_DEMO, 0.0
+    elif _CONSULTOR_ADN is not None:
+        (consultar_fn, documento_alvo), espera = _CONSULTOR_ADN, 0.0
+    else:
+        try:
+            pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
+            if ambiente is None:
+                amb = config_cert.ambiente
+            cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb)
+        except ErroCertificadoA1 as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        consultar_fn, documento_alvo, espera = (
+            cliente.consultar_nsu,
+            cliente.cnpj_consulta,
+            1.0,
+        )
+
+    try:
+        return sincronizar_adn(
+            consultar_fn,
+            repo,
+            documento_alvo=documento_alvo,
+            ambiente=amb,
+            max_paginas=max_paginas,
+            espera_segundos=espera,
+        )
+    except ErroBloqueioADN as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+
 @app.post("/api/recebidas/demo", response_model=ResumoExecucaoSync)
 def carregar_recebidas_demo(
     ambiente: int | None = Query(
@@ -1124,6 +1183,11 @@ def listar_recebidas(
         default=None,
         description="Filtra por situação (AUTORIZADA, RESUMO, CANCELADA, etc.)",
     ),
+    origem: str | None = Query(default=None, description="Filtra por origem (DISTDFE ou ADN)"),
+    papel: str | None = Query(
+        default=None, description="Filtra por papel (PRESTADOR, TOMADOR ou INTERMEDIARIO)"
+    ),
+    tipo: str | None = Query(default=None, description="Filtra por tipo (NFE, NFCE ou NFSE)"),
 ) -> ListaNotasRecebidasResponse:
     """Lista as notas recebidas armazenadas no SQLite com suporte a filtros combinados."""
     repo = obter_repositorio_recebidas()
@@ -1136,6 +1200,9 @@ def listar_recebidas(
         valor_max=valor_max,
         categoria=categoria,
         situacao=situacao,
+        origem=origem,
+        papel=papel,
+        tipo=tipo,
     )
     soma_valores = sum((n.valor_total for n in notas), DECIMAL_ZERO)
     return ListaNotasRecebidasResponse(
