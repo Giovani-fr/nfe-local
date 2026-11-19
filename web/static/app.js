@@ -1033,6 +1033,21 @@
         if (btnRemoverCert) btnRemoverCert.classList.add("hidden");
       }
 
+      const avisosCert = document.getElementById("cert-avisos");
+      if (avisosCert) {
+        const avisos = [];
+        if (st.migracao_legada_pendente) {
+          avisos.push(`<div class="cert-feedback err">⚠️ Há um certificado no formato antigo (<code>data/certificado/</code>, com a senha em texto puro dentro da pasta do projeto). <button id="btn-migrar-cert" type="button" class="btn btn-sm btn-gold">Mover e proteger agora</button></div>`);
+        }
+        if (st.pasta_certificado_sincronizada) {
+          avisos.push(`<div class="cert-feedback err">⚠️ A pasta do certificado parece estar em uma pasta sincronizada na nuvem (OneDrive/Dropbox/Google Drive). Defina <code>NFE_DATA_DIR</code> para uma pasta local.</div>`);
+        }
+        if (st.origem_certificado === "interface" && st.protecao_senha === "env") {
+          avisos.push(`<div class="muted">Senha lida de <code>NFE_CERT_SENHA</code> (sem DPAPI neste sistema).</div>`);
+        }
+        avisosCert.innerHTML = avisos.join("");
+      }
+
       if (badgeAmb) {
         badgeAmb.className = st.ambiente === 1 ? "badge badge-ok" : "badge badge-warn";
         badgeAmb.textContent = st.ambiente === 1 ? `Produção (1) • UF ${st.uf_autor || "35"}` : `Homologação (2) • UF ${st.uf_autor || "35"}`;
@@ -1181,6 +1196,21 @@
       definirStatusRecebidas("Certificado digital removido do computador.");
     } catch (err) {
       definirStatusRecebidas(`Erro ao remover certificado: ${err.message}`, true);
+    }
+  };
+
+  const migrarCertificadoLegado = async () => {
+    try {
+      const resp = await fetch("/api/recebidas/certificado/migrar", { method: "POST" });
+      const dados = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        definirStatusRecebidas(dados.detail || "Falha ao migrar o certificado.", true);
+        return;
+      }
+      await carregarStatusRecebidas();
+      definirStatusRecebidas("Certificado movido para a pasta segura; senha protegida e senha.txt antigo apagado.");
+    } catch (err) {
+      definirStatusRecebidas(`Erro ao migrar certificado: ${err.message}`, true);
     }
   };
 
@@ -1541,6 +1571,9 @@
     document.getElementById("form-cadastro-certificado")?.addEventListener("submit", salvarCertificadoModal);
     document.getElementById("btn-salvar-quick-config")?.addEventListener("click", salvarQuickConfigSefaz);
     document.getElementById("btn-remover-cert")?.addEventListener("click", removerCertificadoSalvo);
+    document.getElementById("cert-avisos")?.addEventListener("click", (e) => {
+      if (e.target.closest("#btn-migrar-cert")) migrarCertificadoLegado();
+    });
 
     const btnRevelarSenha = document.getElementById("btn-revelar-senha-cert");
     const inputSenhaCert = document.getElementById("input-cert-senha");

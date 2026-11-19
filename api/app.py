@@ -40,7 +40,10 @@ from sefaz.cert_a1 import (
     MetadadosCertificado,
     atualizar_config_sefaz_local,
     carregar_certificado_configurado,
+    detectar_cadastro_legado,
     ler_config_sefaz_local,
+    migrar_cadastro_legado,
+    protecao_da_senha,
     remover_certificado_local,
     resolver_diretorio_certificado,
     salvar_certificado_local,
@@ -59,6 +62,7 @@ from sefaz.dist_dfe import (
     RespostaDistDFe,
     resolver_ambiente_sefaz,
 )
+from sefaz.segredos import pasta_parece_sincronizada
 from sefaz.storage import (
     RegistroNotaRecebida,
     RegistroSyncLog,
@@ -166,6 +170,9 @@ class StatusRecebidasSEFAZ(BaseModel):
     uf_autor: str = "35"
     ambiente: Literal[1, 2] = 2
     origem_certificado: Literal["interface", "env", "nao_configurado"] = "nao_configurado"
+    protecao_senha: Literal["dpapi", "env", "nenhuma"] = "nenhuma"
+    migracao_legada_pendente: bool = False
+    pasta_certificado_sincronizada: bool = False
     config: ConfigCertificadoSEFAZ = Field(default_factory=ConfigCertificadoSEFAZ)
     cursor: EstadoCursorNSU
     bloqueado: bool = False
@@ -896,6 +903,9 @@ def _montar_status_recebidas_sefaz(ambiente_override: int | None = None) -> Stat
         uf_autor=config_sefaz.uf_autor,
         ambiente=amb,
         origem_certificado=config_sefaz.origem,
+        protecao_senha=protecao_da_senha(cert_dir),
+        migracao_legada_pendente=detectar_cadastro_legado() is not None,
+        pasta_certificado_sincronizada=pasta_parece_sincronizada(cert_dir),
         config=config_sefaz,
         cursor=cursor,
         bloqueado=bloqueado,
@@ -966,6 +976,16 @@ def atualizar_config_recebidas(payload: AtualizarConfigSEFAZRequest) -> StatusRe
     except ErroCertificadoA1 as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    return _montar_status_recebidas_sefaz()
+
+
+@app.post("/api/recebidas/certificado/migrar", response_model=StatusRecebidasSEFAZ)
+def migrar_certificado_legado_recebidas() -> StatusRecebidasSEFAZ:
+    """Move o cadastro antigo (`data/certificado/`) para a pasta segura e protege a senha."""
+    try:
+        migrar_cadastro_legado(cert_dir=obter_diretorio_certificado())
+    except ErroCertificadoA1 as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _montar_status_recebidas_sefaz()
 
 
