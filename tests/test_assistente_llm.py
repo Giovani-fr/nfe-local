@@ -49,6 +49,8 @@ def _carregar_lote_teste():
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Cliente FastAPI isolado sem chave LLM configurada por padrão."""
     monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_ENVIAR_IDENTIFICADORES", raising=False)
+    monkeypatch.delenv("LLM_ENVIAR_AMOSTRA", raising=False)
     obter_repositorio_lotes().limpar()
     definir_servico_assistente(ServicoAssistenteLote())
     return TestClient(app)
@@ -59,7 +61,13 @@ class TestContextoCompactoLLM:
 
     def test_montar_contexto_inclui_totais_e_alertas_sem_vazar_xml_bruto(self) -> None:
         resumo, resultados = _carregar_lote_teste()
-        contexto = montar_contexto_lote_llm(resumo, resultados, max_notas=3)
+        contexto = montar_contexto_lote_llm(
+            resumo,
+            resultados,
+            max_notas=3,
+            enviar_identificadores=True,
+            enviar_amostra=True,
+        )
 
         assert "resumo" in contexto
         assert "notas_amostradas" in contexto
@@ -239,6 +247,8 @@ class TestEndpointsAPIAssistenteLLM:
             "modelo": "modelo-teste-local",
             "chamadas_restantes": 2,
             "max_chamadas_hora": 2,
+            "enviar_identificadores": False,
+            "enviar_amostra": False,
         }
 
         lote_id = client.post("/api/lote/demo").json()["lote_id"]

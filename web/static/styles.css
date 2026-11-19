@@ -1232,6 +1232,24 @@ body {
   line-height: 1.55;
 }
 
+.llm-legenda {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-color, rgba(128, 128, 128, 0.4));
+  font-size: 0.82rem;
+}
+
+.llm-legenda table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.llm-legenda th,
+.llm-legenda td {
+  text-align: left;
+  padding: 0.2rem 0.5rem;
+}
+
 /* Painel Recebidas SEFAZ (DistDFe) e Certificado A1 */
 .sefaz-status-panel {
   display: flex;

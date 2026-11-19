@@ -33,8 +33,13 @@ SYSTEM_PROMPT_ASSISTENTE_FISCAL = (
     "Baseie-se ESTRITAMENTE nos números, totais, impostos e alertas já calculados "
     "pelo motor fiscal determinístico em Python fornecido no JSON de contexto. "
     "NUNCA invente valores, chaves ou notas que não estejam no contexto. "
-    "Se uma informação não constar no resumo ou nas notas amostradas, informe isso explicitamente."
+    "Se uma informação não constar no resumo ou nas notas amostradas, informe isso explicitamente. "
+    "Por privacidade, emitentes podem aparecer como códigos (ex.: 'Emitente 01'): use sempre "
+    "esses códigos na resposta e nunca tente adivinhar razão social ou CNPJ."
 )
+
+PREFIXO_CODIGO_EMITENTE = "Emitente"
+_VALORES_VERDADEIROS = frozenset({"1", "true", "sim", "s", "yes", "on"})
 
 
 class ErroAssistenteLLM(Exception):
@@ -74,6 +79,8 @@ class ConfiguracaoLLM:
     base_url: str
     modelo: str
     max_chamadas_hora: int
+    enviar_identificadores: bool = False
+    enviar_amostra: bool = False
 
     @property
     def configurado(self) -> bool:
@@ -91,6 +98,11 @@ class RespostaAssistenteLote:
     modelo: str
     chamadas_restantes: int
     chave_cache: str
+    legenda_codigos: tuple[dict[str, str], ...] = ()
+
+
+def _ler_booleano_env(nome: str) -> bool:
+    return os.environ.get(nome, "").strip().lower() in _VALORES_VERDADEIROS
 
 
 def carregar_configuracao_llm() -> ConfiguracaoLLM:
@@ -110,6 +122,8 @@ def carregar_configuracao_llm() -> ConfiguracaoLLM:
         base_url=base_url,
         modelo=modelo,
         max_chamadas_hora=max_chamadas,
+        enviar_identificadores=_ler_booleano_env("LLM_ENVIAR_IDENTIFICADORES"),
+        enviar_amostra=_ler_booleano_env("LLM_ENVIAR_AMOSTRA"),
     )
 
 
@@ -138,57 +152,105 @@ def _prioridade_nota_para_contexto(resultado: ResultadoAnalise) -> tuple[int, in
     return (tem_erro, tem_aviso, -valor)
 
 
+def _chave_emitente(documento: str | None, razao_social: str | None) -> str:
+    return (documento or "").strip() or (razao_social or "").strip()
+
+
+def mapear_codigos_emitentes(
+    resumo: ResumoLote, resultados: list[ResultadoAnalise]
+) -> dict[str, dict[str, str]]:
+    """Atribui códigos estáveis ("Emitente 01"...) aos emitentes do lote, só em memória local.
+
+    A numeração segue a ordem do documento (CNPJ/CPF), então não depende do valor das notas
+    nem da ordem de upload. Retorna `{chave: {"codigo", "documento", "razao_social"}}`.
+    """
+    encontrados: dict[str, tuple[str, str]] = {}
+    for e in resumo.por_emitente:
+        chave = _chave_emitente(e.documento, e.razao_social)
+        if chave:
+            encontrados[chave] = (e.documento or "", e.razao_social or "")
+    for res in resultados:
+        if res.documento is not None:
+            em = res.documento.emitente
+            chave = _chave_emitente(em.documento, em.razao_social)
+            if chave and chave not in encontrados:
+                encontrados[chave] = (em.documento or "", em.razao_social or "")
+    largura = max(2, len(str(len(encontrados))))
+    return {
+        chave: {
+            "codigo": f"{PREFIXO_CODIGO_EMITENTE} {n:0{largura}d}",
+            "documento": encontrados[chave][0],
+            "razao_social": encontrados[chave][1],
+        }
+        for n, chave in enumerate(sorted(encontrados), start=1)
+    }
+
+
+def anonimizar_texto(texto: str, mapa: Mapping[str, Mapping[str, str]]) -> str:
+    """Troca razão social e CNPJ/CPF conhecidos do lote por seus códigos dentro de `texto`."""
+    alvos: list[tuple[str, str]] = []
+    for info in mapa.values():
+        codigo = info["codigo"]
+        for valor in (info["razao_social"], info["documento"]):
+            if valor and len(valor.strip()) >= 3:
+                alvos.append((valor.strip(), codigo))
+        doc = re.sub(r"[^0-9A-Za-z]", "", info["documento"] or "")
+        if len(doc) == 14:
+            alvos.append((f"{doc[:2]}.{doc[2:5]}.{doc[5:8]}/{doc[8:12]}-{doc[12:]}", codigo))
+        elif len(doc) == 11:
+            alvos.append((f"{doc[:3]}.{doc[3:6]}.{doc[6:9]}-{doc[9:]}", codigo))
+        if len(doc) in (11, 14):
+            alvos.append((doc, codigo))
+    resultado = texto
+    # Mais longos primeiro, para que um nome contido em outro não corte o texto errado.
+    for valor, codigo in sorted(alvos, key=lambda par: -len(par[0])):
+        resultado = re.sub(re.escape(valor), codigo, resultado, flags=re.IGNORECASE)
+    return resultado
+
+
+def legenda_codigos_usados(
+    texto: str, mapa: Mapping[str, Mapping[str, str]]
+) -> tuple[dict[str, str], ...]:
+    """Tradução código -> nome/documento, apenas dos códigos citados em `texto` (uso local)."""
+    usados = [
+        {
+            "codigo": info["codigo"],
+            "razao_social": info["razao_social"],
+            "documento": info["documento"],
+        }
+        for info in mapa.values()
+        if re.search(rf"\b{re.escape(info['codigo'])}\b", texto, flags=re.IGNORECASE)
+    ]
+    return tuple(sorted(usados, key=lambda d: d["codigo"]))
+
+
 def montar_contexto_lote_llm(
     resumo: ResumoLote,
     resultados: list[ResultadoAnalise],
     max_notas: int = 30,
+    *,
+    enviar_identificadores: bool = False,
+    enviar_amostra: bool = False,
 ) -> dict[str, Any]:
-    """Monta dicionário enxuto e determinístico do lote (sem jamais incluir XML bruto)."""
-    limite = max(1, max_notas)
-    ordenados = sorted(resultados, key=_prioridade_nota_para_contexto)[:limite]
+    """Monta o JSON enviado ao provedor LLM (sem jamais incluir XML bruto).
 
-    notas_amostradas: list[dict[str, Any]] = []
-    for res in ordenados:
-        doc = res.documento
-        if doc is not None:
-            razao = doc.emitente.razao_social or ""
-            cnpj_cpf = doc.emitente.documento or ""
-            if razao and cnpj_cpf:
-                emitente_str = f"{razao} ({cnpj_cpf})"
-            else:
-                emitente_str = razao or cnpj_cpf
-            tipo_str = doc.tipo
-            numero_str = doc.numero
-            valor_str = f"{doc.totais.valor_total_nota:.2f}"
-        else:
-            emitente_str = ""
-            tipo_str = "ERRO_XML"
-            numero_str = ""
-            valor_str = "0.00"
-
-        notas_amostradas.append(
-            {
-                "arquivo_origem": res.arquivo_origem,
-                "tipo": tipo_str,
-                "numero": numero_str,
-                "emitente": emitente_str,
-                "valor_total": valor_str,
-                "valido": res.valido,
-                "alertas": [
-                    {
-                        "codigo": a.codigo,
-                        "severidade": a.severidade,
-                        "mensagem": a.mensagem,
-                    }
-                    for a in res.alertas
-                ],
-                "erro_fatal": res.erro_fatal,
-            }
-        )
-
+    Modo padrão (privado): só agregados contábeis, com emitentes trocados por códigos estáveis
+    ("Emitente 01"). `enviar_identificadores=True` envia razão social e CNPJ reais;
+    `enviar_amostra=True` acrescenta a amostra de até `max_notas` notas.
+    """
+    mapa = mapear_codigos_emitentes(resumo, resultados)
     resumo_json = resumo.model_dump(mode="json")
-    # Remove agrupamento diário caso exista apenas para manter o contexto ainda mais enxuto,
-    # preservando contagem, totais financeiros, impostos_totais, por_emitente e por_mes.
+
+    por_emitente: list[dict[str, Any]] = []
+    for item in resumo_json.get("por_emitente", []):
+        if not enviar_identificadores:
+            chave = _chave_emitente(item.get("documento"), item.get("razao_social"))
+            item = {
+                **{k: v for k, v in item.items() if k not in ("documento", "razao_social")},
+                "emitente": mapa[chave]["codigo"] if chave in mapa else PREFIXO_CODIGO_EMITENTE,
+            }
+        por_emitente.append(item)
+
     resumo_compacto = {
         "contagem": resumo_json.get("contagem", {}),
         "valor_produtos_servicos_total": resumo_json.get("valor_produtos_servicos_total", "0.00"),
@@ -199,16 +261,61 @@ def montar_contexto_lote_llm(
         "valor_liquido_total": resumo_json.get("valor_liquido_total", "0.00"),
         "valor_total_notas": resumo_json.get("valor_total_notas", "0.00"),
         "impostos_totais": resumo_json.get("impostos_totais", {}),
-        "por_emitente": resumo_json.get("por_emitente", []),
+        "por_emitente": por_emitente,
         "por_mes": resumo_json.get("por_mes", []),
     }
-
-    return {
+    contexto: dict[str, Any] = {
         "total_notas_no_lote": len(resultados),
-        "max_notas_amostradas": limite,
+        "modo_privacidade": "identificadores_reais" if enviar_identificadores else "anonimizado",
         "resumo": resumo_compacto,
-        "notas_amostradas": notas_amostradas,
     }
+    if not enviar_amostra:
+        return contexto
+
+    limite = max(1, max_notas)
+    ordenados = sorted(resultados, key=_prioridade_nota_para_contexto)[:limite]
+    notas_amostradas: list[dict[str, Any]] = []
+    for posicao, res in enumerate(ordenados, start=1):
+        doc = res.documento
+        if doc is not None:
+            em = doc.emitente
+            if enviar_identificadores:
+                razao = em.razao_social or ""
+                cnpj_cpf = em.documento or ""
+                emitente_str = f"{razao} ({cnpj_cpf})" if razao and cnpj_cpf else razao or cnpj_cpf
+            else:
+                chave = _chave_emitente(em.documento, em.razao_social)
+                emitente_str = mapa[chave]["codigo"] if chave in mapa else PREFIXO_CODIGO_EMITENTE
+            tipo_str, numero_str = doc.tipo, doc.numero
+            valor_str = f"{doc.totais.valor_total_nota:.2f}"
+        else:
+            emitente_str, tipo_str, numero_str, valor_str = "", "ERRO_XML", "", "0.00"
+
+        alertas = [
+            {"codigo": a.codigo, "severidade": a.severidade}
+            | ({"mensagem": a.mensagem} if enviar_identificadores else {})
+            for a in res.alertas
+        ]
+        if enviar_identificadores:
+            arquivo, erro_fatal = res.arquivo_origem, res.erro_fatal
+        else:
+            arquivo = f"Nota {posicao:03d}"
+            erro_fatal = "erro de leitura do XML" if res.erro_fatal else None
+        notas_amostradas.append(
+            {
+                "arquivo_origem": arquivo,
+                "tipo": tipo_str,
+                "numero": numero_str,
+                "emitente": emitente_str,
+                "valor_total": valor_str,
+                "valido": res.valido,
+                "alertas": alertas,
+                "erro_fatal": erro_fatal,
+            }
+        )
+    contexto["max_notas_amostradas"] = limite
+    contexto["notas_amostradas"] = notas_amostradas
+    return contexto
 
 
 class CachePerguntasLLM:
@@ -352,7 +459,11 @@ class ServicoAssistenteLote:
         limitador: LimitadorUsoLLM | None = None,
         cliente_completion: ClienteCompletionCallable | None = None,
         timeout_segundos: float = 30.0,
+        enviar_identificadores: bool | None = None,
+        enviar_amostra: bool | None = None,
     ) -> None:
+        self._enviar_identificadores_explicito = enviar_identificadores
+        self._enviar_amostra_explicita = enviar_amostra
         self._api_key_explicita = api_key
         self._base_url_explicita = base_url
         self._modelo_explicito = modelo
@@ -389,6 +500,16 @@ class ServicoAssistenteLote:
             base_url=base_url,
             modelo=modelo,
             max_chamadas_hora=max_chamadas,
+            enviar_identificadores=(
+                self._enviar_identificadores_explicito
+                if self._enviar_identificadores_explicito is not None
+                else cfg_env.enviar_identificadores
+            ),
+            enviar_amostra=(
+                self._enviar_amostra_explicita
+                if self._enviar_amostra_explicita is not None
+                else cfg_env.enviar_amostra
+            ),
         )
 
     def esta_configurado(self) -> bool:
@@ -406,6 +527,8 @@ class ServicoAssistenteLote:
             "modelo": cfg.modelo,
             "chamadas_restantes": restantes,
             "max_chamadas_hora": cfg.max_chamadas_hora,
+            "enviar_identificadores": cfg.enviar_identificadores,
+            "enviar_amostra": cfg.enviar_amostra,
         }
 
     def limpar_cache(self) -> None:
@@ -468,12 +591,20 @@ class ServicoAssistenteLote:
         pergunta_limpa = (pergunta or "").strip()
         cfg = self._resolver_config()
 
+        mapa = mapear_codigos_emitentes(resumo, resultados)
+        # Modo padrão: nomes/CNPJs digitados na pergunta também viram códigos antes de sair.
+        pergunta_enviada = (
+            pergunta_limpa if cfg.enviar_identificadores else anonimizar_texto(pergunta_limpa, mapa)
+        )
         contexto = montar_contexto_lote_llm(
             resumo=resumo,
             resultados=resultados,
             max_notas=max_notas_contexto,
+            enviar_identificadores=cfg.enviar_identificadores,
+            enviar_amostra=cfg.enviar_amostra,
         )
-        chave_cache = self._cache.calcular_chave_cache(contexto, pergunta_limpa)
+        traduzir = not cfg.enviar_identificadores
+        chave_cache = self._cache.calcular_chave_cache(contexto, pergunta_enviada)
 
         # 1. Verifica o cache antes de exigir configuração ou consumir rate-limit
         resposta_cache = self._cache.obter(chave_cache)
@@ -488,13 +619,14 @@ class ServicoAssistenteLote:
                 modelo=cfg.modelo,
                 chamadas_restantes=restantes,
                 chave_cache=chave_cache,
+                legenda_codigos=legenda_codigos_usados(resposta_cache, mapa) if traduzir else (),
             )
 
         # 2. Se não está em cache, exige provedor configurado
         if not self.esta_configurado():
             raise ErroLLMNaoConfigurado(
                 "Assistente LLM não configurado. Defina a variável de ambiente LLM_API_KEY "
-                "(e opcionalmente LLM_BASE_URL e LLM_MODEL) no arquivo .env para habilitar "
+                "(e opcionalmente LLM_BASE_URL e LLM_MODEL) para habilitar "
                 "perguntas com IA sobre o lote."
             )
 
@@ -508,7 +640,7 @@ class ServicoAssistenteLote:
                 "content": (
                     "Contexto determinístico do lote fiscal (JSON):\n"
                     f"{json.dumps(contexto, ensure_ascii=False, sort_keys=True)}\n\n"
-                    f"Pergunta do usuário: {pergunta_limpa}"
+                    f"Pergunta do usuário: {pergunta_enviada}"
                 ),
             },
         ]
@@ -528,4 +660,5 @@ class ServicoAssistenteLote:
             modelo=cfg.modelo,
             chamadas_restantes=restantes,
             chave_cache=chave_cache,
+            legenda_codigos=legenda_codigos_usados(resposta_texto, mapa) if traduzir else (),
         )

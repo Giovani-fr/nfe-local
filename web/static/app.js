@@ -514,10 +514,14 @@
       const st = await resp.json();
       if (st.configurado) {
         badge.className = "badge badge-ok";
-        badge.textContent = `Ativo (${st.modelo})`;
+        const modo = st.enviar_identificadores
+          ? "envia nomes/CNPJ reais"
+          : "agregados anonimizados";
+        const amostra = st.enviar_amostra ? " + amostra de notas" : "";
+        badge.textContent = `Ativo (${st.modelo}) · ${modo}${amostra}`;
       } else {
         badge.className = "badge badge-warn";
-        badge.textContent = "Desativado (defina LLM_API_KEY no .env)";
+        badge.textContent = "Desativado (defina a variável de ambiente LLM_API_KEY)";
       }
       quota.textContent = `Chamadas restantes: ${st.chamadas_restantes}/${st.max_chamadas_hora} por hora`;
     } catch (_) {
@@ -536,6 +540,7 @@
     const modeloEl = document.getElementById("llm-resposta-modelo");
     const cacheBadge = document.getElementById("llm-badge-cache");
     const textoEl = document.getElementById("llm-resposta-texto");
+    const legendaEl = document.getElementById("llm-legenda-codigos");
     const quotaEl = document.getElementById("llm-quota-counter");
 
     btn.disabled = true;
@@ -543,6 +548,10 @@
     cacheBadge.classList.add("hidden");
     modeloEl.textContent = "Consultando assistente...";
     textoEl.textContent = "Aguarde...";
+    if (legendaEl) {
+      legendaEl.classList.add("hidden");
+      legendaEl.textContent = "";
+    }
 
     try {
       const resp = await fetch(`/api/lote/${estado.loteId}/perguntar`, {
@@ -564,6 +573,18 @@
         cacheBadge.classList.add("hidden");
       }
       textoEl.textContent = dados.resposta;
+      if (legendaEl && Array.isArray(dados.legenda_codigos) && dados.legenda_codigos.length) {
+        const linhas = dados.legenda_codigos
+          .map(
+            (c) =>
+              `<tr><td><strong>${escaparHtml(c.codigo)}</strong></td><td>${escaparHtml(c.razao_social)}</td><td>${escaparHtml(c.documento)}</td></tr>`
+          )
+          .join("");
+        legendaEl.innerHTML =
+          '<div class="muted">Tradução local dos códigos (esta tabela nunca foi enviada ao provedor):</div>' +
+          `<table><thead><tr><th>Código</th><th>Razão social</th><th>CNPJ/CPF</th></tr></thead><tbody>${linhas}</tbody></table>`;
+        legendaEl.classList.remove("hidden");
+      }
       if (quotaEl && typeof dados.chamadas_restantes === "number") {
         quotaEl.textContent = `Chamadas restantes: ${dados.chamadas_restantes} na hora atual`;
       }

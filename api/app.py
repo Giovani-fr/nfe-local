@@ -125,6 +125,8 @@ class StatusLLMResponse(BaseModel):
     modelo: str
     chamadas_restantes: int
     max_chamadas_hora: int
+    enviar_identificadores: bool = False
+    enviar_amostra: bool = False
 
 
 class PerguntaLoteRequest(BaseModel):
@@ -133,6 +135,14 @@ class PerguntaLoteRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     pergunta: str = Field(..., min_length=3, max_length=500)
+
+
+class LegendaCodigoEmitente(BaseModel):
+    """Tradução local de um código anonimizado (ex.: "Emitente 01") para o emitente real."""
+
+    codigo: str
+    razao_social: str = ""
+    documento: str = ""
 
 
 class PerguntaLoteResponse(BaseModel):
@@ -144,6 +154,7 @@ class PerguntaLoteResponse(BaseModel):
     em_cache: bool
     modelo: str
     chamadas_restantes: int
+    legenda_codigos: list[LegendaCodigoEmitente] = Field(default_factory=list)
 
 
 class StatusRecebidasSEFAZ(BaseModel):
@@ -832,6 +843,7 @@ def perguntar_sobre_lote(lote_id: str, payload: PerguntaLoteRequest) -> Pergunta
         em_cache=resultado_llm.em_cache,
         modelo=resultado_llm.modelo,
         chamadas_restantes=resultado_llm.chamadas_restantes,
+        legenda_codigos=[LegendaCodigoEmitente(**item) for item in resultado_llm.legenda_codigos],
     )
 
 

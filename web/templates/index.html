@@ -344,7 +344,7 @@
 
                 <div class="llm-body">
                   <p class="muted llm-hint">
-                    Envia apenas o resumo contábil e alertas já calculados localmente em Python para o escopo ativo (nunca envia XMLs brutos). Respostas idênticas usam cache SHA-256 sem gastar franquia.
+                    Por padrão, envia ao provedor apenas totais e impostos agregados, com emitentes anonimizados como "Emitente 01", "Emitente 02"... (nunca XMLs, razão social ou CNPJ). A tradução código &rarr; nome aparece aqui, calculada no seu computador. Respostas idênticas usam cache SHA-256 sem gastar franquia.
                   </p>
 
                   <div class="llm-chips">
@@ -380,6 +380,7 @@
                       <span id="llm-badge-cache" class="badge badge-ok hidden">⚡ Cache local</span>
                     </div>
                     <div id="llm-resposta-texto" class="llm-resposta-texto"></div>
+                    <div id="llm-legenda-codigos" class="llm-legenda hidden" aria-label="Tradução local dos códigos de emitente"></div>
                   </div>
                 </div>
               </section>
