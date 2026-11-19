@@ -75,7 +75,7 @@ nfe-local/
 ├── sefaz/                     # (Fase 2)
 │   ├── __init__.py
 │   ├── cert_a1.py             # Leitura PKCS#12 (.pfx) em memória via cryptography
-│   ├── dist_dfe.py            # Cliente SOAP 1.2 NFeDistribuicaoDFe (mTLS) do zero
+│   ├── dist_dfe.py            # Cliente SOAP 1.2 NFeDistribuicaoDFe (mTLS via requests-pkcs12; ver seção 5, item 3)
 │   ├── descompactador.py      # docZip (base64 + gzip) -> XML bytes
 │   └── storage.py             # SQLite mínimo (dfe_cursor, notas_recebidas, sync_log)
 ├── api/
@@ -117,5 +117,9 @@ Use `Decimal` para todos os campos monetários e de quantidade (evitando erros d
    - **Proibido usar `re.sub(r"\D", "", ...)`** para limpar CNPJ ou Chave de Acesso. Use limpeza alfanumérica (`re.sub(r"[^0-9A-Za-z]", "", valor).upper()`), removendo prefixos conhecidos no início (`NFe`, `CTe`, `NFSe`, `NFS`, `DPS`).
 2. **Batimento Financeiro Inteligente:**
    - Validar que a soma de `item.valor_total` ($\sum \text{vProd}$) bate com `totais.valor_produtos_servicos` (`vProd` do `ICMSTot`), com tolerância de `Decimal('0.01')` apenas quando expressamente configurado, e validar a equação da nota: `vProd - vDesc + vFrete + vSeg + vOutro + vIPI + vST == vNF`.
-3. **Referência de Domínio:**
+3. **mTLS e arquivo temporário (`requests-pkcs12`):**
+   - O `.pfx` e a senha são lidos/validados em memória (`cryptography`); o código do projeto não grava `.key` nem `.pem`.
+   - O `Pkcs12Adapter` (usado em `sefaz/dist_dfe.py` e `sefaz/adn.py`), porém, grava **um arquivo temporário na pasta temporária do sistema** a cada criação de sessão HTTP: a chave privada em PEM PKCS#8 **cifrada com senha aleatória de 128 bits** (só em memória, nunca gravada) mais os certificados públicos. Ele carrega o arquivo no contexto TLS e o apaga em seguida (milissegundos, `os.remove` simples, sem sobrescrita; resíduos podem durar até serem sobrescritos).
+   - **Nunca afirmar que "nenhum `.pem` é gravado" ou que o mTLS é "100% em memória".** Descrever como acima. A tarefa 28 do `docs/BACKLOG.md` avalia eliminar o arquivo temporário.
+4. **Referência de Domínio:**
    - O mapeamento de tags XML e o layout HTML A4 seguem os manuais oficiais (MOC da NF-e, NT 008/2026 do DANFSe e Padrão Nacional da NFS-e). Nenhum código, dado ou XML de projetos externos ou de empresas reais deve ser copiado para este repositório.

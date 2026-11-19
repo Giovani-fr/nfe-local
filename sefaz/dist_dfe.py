@@ -205,7 +205,7 @@ def parse_resposta_dist_dfe(xml_soap: bytes | str) -> RespostaDistDFe:
 
 
 class ClienteNFeDistribuicaoDFe:
-    """Cliente SOAP 1.2 com mTLS em memória (PKCS#12) para o `NFeDistribuicaoDFe`."""
+    """Cliente SOAP 1.2 com mTLS (PKCS#12 via `requests-pkcs12`; usa `.pem` temporário)."""
 
     def __init__(
         self,

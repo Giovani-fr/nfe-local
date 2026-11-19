@@ -1,8 +1,9 @@
-"""Cliente REST do ADN Contribuintes (NFS-e Padrão Nacional) com mTLS em memória.
+"""Cliente REST do ADN Contribuintes (NFS-e Padrão Nacional) com mTLS (`requests-pkcs12`).
 
 Contrato confirmado no Swagger oficial e resumido em `docs/adn.md`. O mesmo certificado A1 do
-`NFeDistribuicaoDFe` é reaproveitado (PKCS#12 em memória via `requests-pkcs12`; nenhum `.pem`
-é gravado em disco).
+`NFeDistribuicaoDFe` é reaproveitado. O `.pfx` é lido em memória, mas o `requests-pkcs12` grava por
+instantes um `.pem` temporário (chave cifrada por senha aleatória) na pasta temporária e o
+apaga em seguida (ver a tarefa 28 do backlog).
 """
 
 from __future__ import annotations
