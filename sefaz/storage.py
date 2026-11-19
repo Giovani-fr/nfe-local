@@ -13,7 +13,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from models.fiscal import DocumentoFiscal, ResultadoAnalise
+from models.fiscal import (
+    AlertaValidacao,
+    DocumentoFiscal,
+    Parte,
+    ResultadoAnalise,
+    Totais,
+)
 from models.normalizadores import (
     DECIMAL_ZERO,
     limpar_chave_acesso,
@@ -22,7 +28,7 @@ from models.normalizadores import (
     para_decimal,
 )
 from reports.resumo import ResumoLote, gerar_resumo_lote
-from sefaz.adn import EstadoCursorADN
+from sefaz.adn import EstadoCursorADN, calcular_papel_visao
 from sefaz.controle_nsu import EstadoCursorNSU, executar_loop_nsu
 from sefaz.descompactador import (
     CategoriaSchemaDocZip,
@@ -162,6 +168,7 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("notas_recebidas", "papel", "TEXT"),
     ("sync_log", "origem", "TEXT NOT NULL DEFAULT 'NFE'"),
     ("sync_log", "tentativas", "INTEGER NOT NULL DEFAULT 1"),
+    ("adn_cursor", "documento_consulta", "TEXT"),
     ("sync_log", "falhas_conexao", "TEXT"),
 )
 _INDICES_NOVOS: tuple[str, ...] = (
@@ -210,6 +217,7 @@ class RegistroNotaRecebida(BaseModel):
     valido: bool = True
     origem: str = ORIGEM_DISTDFE
     papel: str | None = None
+    papel_visao: str | None = None
     atualizado_em: datetime
 
 
@@ -244,6 +252,7 @@ class ResumoExecucaoSync(BaseModel):
     eventos_registrados: int = 0
     bloqueado_656: bool = False
     fila_zerada: bool = False
+    adn_novas_notas: int = 0
 
 
 class ResumoHistoricoLote(BaseModel):
@@ -601,7 +610,18 @@ class RepositorioDistDFeSQLite:
             bloqueado_ate=_iso_para_dt(row["bloqueado_ate"]),
             ultimo_status=row["ultimo_status"],
             ultimo_motivo=row["ultimo_motivo"],
+            documento_consulta=row["documento_consulta"] or "",
         )
+
+    def obter_documento_consulta_recente(self) -> str:
+        """CNPJ usado na consulta ADN mais recente (base para o papel EMITIDA/RECEBIDA)."""
+        with self._conectar() as conn:
+            row = conn.execute(
+                "SELECT documento_consulta FROM adn_cursor "
+                "WHERE COALESCE(documento_consulta, '') != '' "
+                "ORDER BY COALESCE(ultima_consulta, '') DESC LIMIT 1"
+            ).fetchone()
+        return (row["documento_consulta"] if row else "") or ""
 
     def salvar_cursor_adn(self, cursor: EstadoCursorADN) -> None:
         """Upsert do cursor do ADN."""
@@ -611,14 +631,15 @@ class RepositorioDistDFeSQLite:
                 """
                 INSERT INTO adn_cursor (
                     ambiente, ultimo_nsu, ultima_consulta, bloqueado_ate,
-                    ultimo_status, ultimo_motivo
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    ultimo_status, ultimo_motivo, documento_consulta
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ambiente) DO UPDATE SET
                     ultimo_nsu = excluded.ultimo_nsu,
                     ultima_consulta = excluded.ultima_consulta,
                     bloqueado_ate = excluded.bloqueado_ate,
                     ultimo_status = excluded.ultimo_status,
-                    ultimo_motivo = excluded.ultimo_motivo
+                    ultimo_motivo = excluded.ultimo_motivo,
+                    documento_consulta = excluded.documento_consulta
                 """,
                 (
                     amb,
@@ -627,6 +648,7 @@ class RepositorioDistDFeSQLite:
                     _dt_para_iso(cursor.bloqueado_ate),
                     cursor.ultimo_status,
                     cursor.ultimo_motivo,
+                    cursor.documento_consulta,
                 ),
             )
 
@@ -822,6 +844,7 @@ class RepositorioDistDFeSQLite:
         origem: str | None = None,
         papel: str | None = None,
         tipo: str | None = None,
+        documento_alvo: str | None = None,
     ) -> list[RegistroNotaRecebida]:
         """Lista notas recebidas ordenadas por `data_emissao DESC, nsu DESC` com filtros."""
         amb_param = int(ambiente) if ambiente in (1, 2) else None
@@ -842,7 +865,14 @@ class RepositorioDistDFeSQLite:
         cat_param = categoria.strip().upper() if categoria and categoria.strip() else None
         sit_param = situacao.strip().upper() if situacao and situacao.strip() else None
         ori_param = origem.strip().upper() if origem and origem.strip() else None
-        pap_param = papel.strip().upper() if papel and papel.strip() else None
+        if ori_param == "SEFAZ":
+            ori_param = ORIGEM_DISTDFE
+        pap_bruto = papel.strip().upper() if papel and papel.strip() else None
+        # Nomes do ADN filtram no SQL; EMITIDA/RECEBIDA/INTERMEDIARIA filtram pela visão.
+        pap_param = pap_bruto if pap_bruto in ("PRESTADOR", "TOMADOR", "INTERMEDIARIO") else None
+        pap_visao = pap_bruto if pap_bruto in ("EMITIDA", "RECEBIDA", "INTERMEDIARIA") else None
+        if pap_bruto and pap_param is None and pap_visao is None:
+            return []
         tip_param = tipo.strip().upper() if tipo and tipo.strip() else None
 
         with self._conectar() as conn:
@@ -901,7 +931,14 @@ class RepositorioDistDFeSQLite:
                 ),
             ).fetchall()
 
-        return [_converter_linha_nota(r) for r in rows]
+        notas = [_converter_linha_nota(r) for r in rows]
+        for n in notas:
+            n.papel_visao = calcular_papel_visao(
+                documento_alvo, n.emitente_documento, n.destinatario_documento, n.papel
+            )
+        if pap_visao:
+            notas = [n for n in notas if n.papel_visao == pap_visao]
+        return notas
 
     def registrar_log_sync(
         self,
@@ -943,13 +980,15 @@ class RepositorioDistDFeSQLite:
             )
             return int(cur.lastrowid or 0)
 
-    def listar_logs_sync(self, limite: int = 20) -> list[RegistroSyncLog]:
-        """Lista os registros mais recentes de `sync_log`."""
+    def listar_logs_sync(
+        self, limite: int = 20, origem: str | None = None
+    ) -> list[RegistroSyncLog]:
+        """Lista os registros mais recentes de `sync_log` (opcionalmente de uma origem)."""
         lim = max(1, int(limite))
         with self._conectar() as conn:
             rows = conn.execute(
-                "SELECT * FROM sync_log ORDER BY id DESC LIMIT ?",
-                (lim,),
+                "SELECT * FROM sync_log WHERE (? IS NULL OR origem = ?) ORDER BY id DESC LIMIT ?",
+                (origem, origem, lim),
             ).fetchall()
 
         logs: list[RegistroSyncLog] = []
@@ -1246,6 +1285,113 @@ class RepositorioDistDFeSQLite:
 
         resumo = gerar_resumo_lote(resultados_unificados)
         return criado_em_ref, resumo, resultados_unificados, xmls_brutos
+
+    def obter_notas_como_resultados(
+        self,
+        *,
+        excluir_chaves: set[str] | None = None,
+        documento_alvo: str | None = None,
+    ) -> list[ResultadoAnalise]:
+        """Notas do SEFAZ/ADN como `ResultadoAnalise` (sem ler XML; sem impostos nem itens)."""
+        excluir = excluir_chaves or set()
+        with self._conectar() as conn:
+            rows = conn.execute(
+                """
+                SELECT chave, ambiente, tipo_documento, modelo, numero, serie,
+                       emitente_documento, emitente_nome, emitente_uf,
+                       destinatario_documento, destinatario_nome, data_emissao,
+                       valor_total, situacao, manifestacao_necessaria, origem, papel
+                FROM notas_recebidas
+                ORDER BY COALESCE(data_emissao, '') DESC, nsu DESC
+                """
+            ).fetchall()
+
+        resultados: list[ResultadoAnalise] = []
+        for r in rows:
+            chave = limpar_chave_acesso(r["chave"])
+            if chave in excluir:
+                continue
+            valor = para_decimal(r["valor_total"])
+            try:
+                doc = DocumentoFiscal(
+                    tipo=r["tipo_documento"],
+                    modelo=r["modelo"],
+                    serie=r["serie"] or "",
+                    numero=r["numero"] or "",
+                    chave_acesso=chave,
+                    data_emissao=_iso_para_dt(r["data_emissao"]),
+                    ambiente=1 if int(r["ambiente"]) == 1 else 2,
+                    situacao=r["situacao"],
+                    emitente=Parte(
+                        documento=r["emitente_documento"] or "",
+                        razao_social=r["emitente_nome"] or "",
+                        uf=r["emitente_uf"],
+                    ),
+                    destinatario=Parte(
+                        documento=r["destinatario_documento"] or "",
+                        razao_social=r["destinatario_nome"] or "",
+                    ),
+                    totais=Totais(valor_produtos_servicos=valor, valor_total_nota=valor),
+                )
+            except ValueError:
+                continue
+            alertas = []
+            if r["manifestacao_necessaria"]:
+                alertas.append(
+                    AlertaValidacao(
+                        codigo="MANIFESTACAO_NECESSARIA",
+                        severidade="AVISO",
+                        mensagem=(
+                            "Registre a Manifestação do Destinatário (210210) para obter o "
+                            "XML completo."
+                        ),
+                    )
+                )
+            rotulo = "SEFAZ" if (r["origem"] or ORIGEM_DISTDFE) == ORIGEM_DISTDFE else "ADN"
+            resultados.append(
+                ResultadoAnalise(
+                    arquivo_origem=chave,
+                    valido=True,
+                    documento=doc,
+                    alertas=alertas,
+                    origem=rotulo,
+                    papel=calcular_papel_visao(
+                        documento_alvo,
+                        doc.emitente.documento,
+                        doc.destinatario.documento if doc.destinatario else "",
+                        r["papel"],
+                    ),
+                )
+            )
+        return resultados
+
+    def obter_visao_tudo(
+        self, documento_alvo: str | None = None
+    ) -> tuple[datetime, ResumoLote, list[ResultadoAnalise], dict[str, bytes]]:
+        """Acervo (uploads) + notas do SEFAZ + notas do ADN, deduplicado por chave de acesso.
+
+        Em caso de chave repetida, vale o upload (XML completo e validado). As notas do
+        SEFAZ/ADN entram sem revalidação e sem itens/impostos (só totais).
+        """
+        criado_em, _, uploads, _ = self.obter_acervo_unificado(incluir_xmls_brutos=False)
+        chaves: set[str] = set()
+        for res in uploads:
+            res.origem = "UPLOAD"
+            doc = res.documento
+            if doc is None:
+                continue
+            if doc.chave_acesso:
+                chaves.add(limpar_chave_acesso(doc.chave_acesso))
+            res.papel = calcular_papel_visao(
+                documento_alvo,
+                doc.emitente.documento,
+                doc.destinatario.documento if doc.destinatario else "",
+            )
+        extras = self.obter_notas_como_resultados(
+            excluir_chaves=chaves, documento_alvo=documento_alvo
+        )
+        todos = [*uploads, *extras]
+        return criado_em, gerar_resumo_lote(todos), todos, {}
 
     def obter_nota_e_xml_no_escopo(
         self,

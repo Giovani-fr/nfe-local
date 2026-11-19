@@ -312,6 +312,8 @@ class EstadoCursorADN(BaseModel):
     bloqueado_ate: datetime | None = None
     ultimo_status: str | None = None
     ultimo_motivo: str | None = None
+    # CNPJ consultado na última execução (o cursor é por CNPJ). Nunca sai em JSON/API.
+    documento_consulta: str = Field(default="", exclude=True)
 
 
 # --- Interpretação da resposta ----------------------------------------------------------------
@@ -462,6 +464,37 @@ def extrair_documento_intermediario(xml_bytes: bytes) -> str:
     if el is None:
         return ""
     return limpar_documento(texto(el, "CNPJ") or texto(el, "CPF"))
+
+
+PAPEL_PARA_VISAO = {
+    "PRESTADOR": "EMITIDA",
+    "TOMADOR": "RECEBIDA",
+    "INTERMEDIARIO": "INTERMEDIARIA",
+}
+PAPEIS_VISAO = ("EMITIDA", "RECEBIDA", "INTERMEDIARIA")
+
+
+def calcular_papel_visao(
+    documento_alvo: str | None,
+    emitente_documento: str,
+    destinatario_documento: str,
+    papel_adn: str | None = None,
+) -> str | None:
+    """EMITIDA, RECEBIDA ou INTERMEDIARIA para exibição.
+
+    O ADN já traz `PRESTADOR`/`TOMADOR`/`INTERMEDIARIO`; para as demais origens compara o
+    documento consultado com o emitente e o destinatário (sem ler XML).
+    """
+    if papel_adn in PAPEL_PARA_VISAO:
+        return PAPEL_PARA_VISAO[papel_adn]
+    alvo = limpar_documento(documento_alvo or "")
+    if not alvo:
+        return None
+    if limpar_documento(emitente_documento) == alvo:
+        return "EMITIDA"
+    if limpar_documento(destinatario_documento) == alvo:
+        return "RECEBIDA"
+    return None
 
 
 def calcular_papel(

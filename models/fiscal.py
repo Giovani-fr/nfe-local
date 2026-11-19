@@ -185,3 +185,6 @@ class ResultadoAnalise(BaseModel):
     documento: DocumentoFiscal | None = None
     alertas: list[AlertaValidacao] = Field(default_factory=list)
     erro_fatal: str | None = None
+    # Só preenchidos na visão unificada ("Tudo"): UPLOAD, SEFAZ ou ADN e EMITIDA/RECEBIDA/...
+    origem: str | None = None
+    papel: str | None = None

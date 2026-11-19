@@ -14,9 +14,14 @@ from parsers.detector import iterar_lote
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
 from sefaz.adn import ClienteADN, ErroBloqueioADN, resolver_tentativas
-from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
+from sefaz.adn_demo import CNPJ_DEMO, montar_itens_demo
 from sefaz.adn_diagnostico import DiagnosticoADN, diagnosticar_adn
-from sefaz.adn_sync import MAX_PAGINAS_PADRAO, ResumoSyncADN, sincronizar_adn
+from sefaz.adn_sync import (
+    MAX_PAGINAS_PADRAO,
+    ResumoSyncADN,
+    carregar_demo_adn,
+    sincronizar_adn,
+)
 from sefaz.cert_a1 import (
     ErroCertificadoA1,
     carregar_certificado_configurado,
@@ -532,15 +537,8 @@ def _executar_sincronizar_adn(args: argparse.Namespace) -> int:
 
     if args.demo:
         amb = resolver_ambiente_sefaz(args.ambiente)
-        resumo = sincronizar_adn(
-            criar_consultor_demo(amb),
-            repo,
-            documento_alvo=CNPJ_DEMO,
-            ambiente=amb,
-            espera_segundos=0,
-            max_paginas=args.max_paginas,
-            tentativas=tentativas,
-            esperas_retentativa=(0, 0, 0),
+        resumo = carregar_demo_adn(
+            repo, montar_itens_demo(), documento_alvo=CNPJ_DEMO, ambiente=amb
         )
     else:
         try:

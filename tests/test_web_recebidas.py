@@ -184,7 +184,7 @@ class TestRotasRecebidasSEFAZ:
         resp_todas = client.get("/api/recebidas")
         assert resp_todas.status_code == 200
         corpo_todas = resp_todas.json()
-        assert corpo_todas["total"] == 3
+        assert corpo_todas["total"] == 9
         assert Decimal(str(corpo_todas["valor_total_filtrado"])) > Decimal("0")
         chaves_todas = {n["chave"] for n in corpo_todas["notas"]}
         assert CHAVE_NFE_1001 in chaves_todas
@@ -210,7 +210,7 @@ class TestRotasRecebidasSEFAZ:
         # Filtro por faixa de valor (valor_min / valor_max)
         resp_valor = client.get(
             "/api/recebidas",
-            params={"valor_min": "2000.00", "valor_max": "2600.00"},
+            params={"valor_min": "2000.00", "valor_max": "2600.00", "origem": "SEFAZ"},
         )
         assert resp_valor.status_code == 200
         notas_valor = resp_valor.json()["notas"]
@@ -225,12 +225,16 @@ class TestRotasRecebidasSEFAZ:
         assert notas_cat[0]["manifestacao_necessaria"] is True
 
         # Filtro por situação (CANCELADA pela fixture de evento 110111 vs AUTORIZADA)
-        resp_cancel = client.get("/api/recebidas", params={"situacao": "CANCELADA"})
+        resp_cancel = client.get(
+            "/api/recebidas", params={"situacao": "CANCELADA", "origem": "SEFAZ"}
+        )
         assert resp_cancel.status_code == 200
         notas_cancel = resp_cancel.json()["notas"]
         assert [n["chave"] for n in notas_cancel] == [CHAVE_NFE_1001]
 
-        resp_autorizada = client.get("/api/recebidas", params={"situacao": "AUTORIZADA"})
+        resp_autorizada = client.get(
+            "/api/recebidas", params={"situacao": "AUTORIZADA", "origem": "SEFAZ"}
+        )
         assert resp_autorizada.status_code == 200
         notas_aut = resp_autorizada.json()["notas"]
         assert [n["chave"] for n in notas_aut] == [CHAVE_NFE_ALNUM]
@@ -356,24 +360,24 @@ class TestRotasRecebidasSEFAZ:
         # Popula banco com demonstração DistDFe (3 notas + 1 evento + cursor + sync_log)
         resp_demo = client.post("/api/recebidas/demo")
         assert resp_demo.status_code == 200
-        assert client.get("/api/recebidas").json()["total"] == 3
+        assert client.get("/api/recebidas").json()["total"] == 9
         assert repo_sqlite.obter_cursor(ambiente=2).ultimo_nsu != "000000000000000"
         assert len(repo_sqlite.listar_logs_sync()) >= 1
 
         # Primeiro testa limpar_notas_recebidas(zerar_cursor=False) preservando cursor/logs
         removidas_sem_cursor = repo_sqlite.limpar_notas_recebidas(zerar_cursor=False)
-        assert removidas_sem_cursor == 3
+        assert removidas_sem_cursor == 9
         assert repo_sqlite.listar_notas_recebidas() == []
         assert repo_sqlite.obter_cursor(ambiente=2).ultimo_nsu != "000000000000000"
         assert len(repo_sqlite.listar_logs_sync()) >= 1
 
         # Recarrega demonstração e testa DELETE /api/recebidas (zera notas, eventos, cursor e logs)
         assert client.post("/api/recebidas/demo").status_code == 200
-        assert client.get("/api/recebidas").json()["total"] == 3
+        assert client.get("/api/recebidas").json()["total"] == 9
 
         resp_del = client.delete("/api/recebidas")
         assert resp_del.status_code == 200
-        assert resp_del.json() == {"removidas": 3}
+        assert resp_del.json() == {"removidas": 9}
 
         assert client.get("/api/recebidas").json()["total"] == 0
         status_pos = client.get("/api/recebidas/status").json()

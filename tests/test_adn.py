@@ -680,9 +680,12 @@ class TestCliEApi:
         assert saida["novas_notas"] == 6 and saida["eventos_registrados"] == 1
         assert saida["papeis"] == {"PRESTADOR": 3, "TOMADOR": 2, "INTERMEDIARIO": 1}
         assert saida["encerrado_por"] == "FILA_ZERADA"
-        # segunda execução: nada novo, cursor mantido
+        # segunda execução: a demo não usa o cursor (não atrapalha dados reais) e é idempotente
         assert cli_main(["sincronizar-adn", "--demo", "--json", "--db", str(banco)]) == 0
-        assert json.loads(capsys.readouterr().out)["documentos_recebidos"] == 0
+        segunda = json.loads(capsys.readouterr().out)
+        assert segunda["novas_notas"] == 0 and segunda["notas_atualizadas"] == 6
+        assert segunda["cursor"]["ultimo_nsu"] == 0
+        assert len(RepositorioDistDFeSQLite(banco).listar_notas_recebidas()) == 6
 
     def test_cli_demo_texto(self, tmp_path, capsys):
         assert cli_main(["sincronizar-adn", "--demo", "--db", str(tmp_path / "t.db")]) == 0

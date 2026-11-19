@@ -315,7 +315,7 @@ class TestHistoricoPersistenteEAcervoUnificado:
             resp_rec_demo = client.post("/api/recebidas/demo")
             assert resp_rec_demo.status_code == 200
             assert client.get("/api/lotes").json()["total"] == 1
-            assert client.get("/api/recebidas").json()["total"] == 3
+            assert client.get("/api/recebidas").json()["total"] == 9
 
             resp_p1 = client.post(
                 f"/api/lote/{lote_id}/perguntar",
@@ -332,7 +332,7 @@ class TestHistoricoPersistenteEAcervoUnificado:
             assert corpo_reset == {
                 "status": "ok",
                 "lotes_removidos": 1,
-                "recebidas_removidas": 3,
+                "recebidas_removidas": 9,
             }
 
             # Confirma tudo zerado (Aba 1, Aba 2, cursor NSU, logs e cache LRU)
@@ -375,7 +375,7 @@ class TestHistoricoPersistenteEAcervoUnificado:
         saida_json = json.loads(capsys.readouterr().out)
         assert saida_json["status"] == "ok"
         assert saida_json["lotes_removidos"] == 1
-        assert saida_json["recebidas_removidas"] == 3
+        assert saida_json["recebidas_removidas"] == 9
         assert repo.listar_lotes_upload() == []
         assert repo.listar_notas_recebidas() == []
         assert repo.listar_logs_sync() == []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import threading
 import uuid
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
@@ -34,9 +35,16 @@ from reports.assistente_lote import (
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
 from reports.resumo import ResumoLote, gerar_resumo_lote
-from sefaz.adn import ClienteADN, ErroBloqueioADN, RespostaADN, resolver_tentativas
-from sefaz.adn_demo import CNPJ_DEMO, criar_consultor_demo
-from sefaz.adn_sync import ResumoSyncADN, sincronizar_adn
+from sefaz.adn import (
+    ClienteADN,
+    ErroBloqueioADN,
+    EstadoCursorADN,
+    RespostaADN,
+    resolver_tentativas,
+)
+from sefaz.adn_demo import CNPJ_DEMO, montar_itens_demo
+from sefaz.adn_diagnostico import DiagnosticoADN, diagnosticar_adn
+from sefaz.adn_sync import ResumoSyncADN, carregar_demo_adn, sincronizar_adn
 from sefaz.cert_a1 import (
     ConfigCertificadoSEFAZ,
     ErroCertificadoA1,
@@ -181,6 +189,11 @@ class StatusRecebidasSEFAZ(BaseModel):
     bloqueado: bool = False
     segundos_bloqueio_restantes: int = 0
     ultimos_logs: list[RegistroSyncLog] = Field(default_factory=list)
+    cursor_adn: EstadoCursorADN = Field(default_factory=EstadoCursorADN)
+    bloqueado_adn: bool = False
+    segundos_bloqueio_adn_restantes: int = 0
+    ultimo_sync_nfe: RegistroSyncLog | None = None
+    ultimo_sync_nfse: RegistroSyncLog | None = None
 
 
 class AtualizarConfigSEFAZRequest(BaseModel):
@@ -266,6 +279,7 @@ _SERVICO_ASSISTENTE = ServicoAssistenteLote()
 _REPOSITORIO_RECEBIDAS: RepositorioDistDFeSQLite | None = None
 _CONSULTOR_DIST_DFE: Callable[[str], RespostaDistDFe] | None = None
 _CONSULTOR_ADN: tuple[Callable[[int], RespostaADN], str] | None = None
+_SESSAO_HTTP_ADN: Any | None = None
 _DIRETORIO_CERTIFICADO: Path | None = None
 
 
@@ -303,6 +317,21 @@ def definir_consultor_dist_dfe(fn: Callable[[str], RespostaDistDFe] | None) -> N
     """Injeta uma função `(ult_nsu) -> RespostaDistDFe` para testes offline de sincronização."""
     global _CONSULTOR_DIST_DFE
     _CONSULTOR_DIST_DFE = fn
+
+
+def definir_sessao_http_adn(sessao: Any | None) -> None:
+    """Injeta uma sessão HTTP simulada no cliente do ADN (testes sem rede)."""
+    global _SESSAO_HTTP_ADN
+    _SESSAO_HTTP_ADN = sessao
+
+
+def _documento_consulta(repo: RepositorioDistDFeSQLite) -> str | None:
+    """CNPJ de referência para EMITIDA/RECEBIDA: `NFE_CNPJ_CONSULTA` ou o da última consulta ADN."""
+    from models.normalizadores import limpar_documento
+
+    return limpar_documento(os.environ.get("NFE_CNPJ_CONSULTA", "")) or (
+        repo.obter_documento_consulta_recente() or None
+    )
 
 
 def definir_consultor_adn(
@@ -444,6 +473,18 @@ def _gerar_nome_rotulo_upload(nomes_enviados: list[str], total_resultados: int) 
 def _resolver_lote_ou_acervo(lote_id: str) -> LoteArmazenado:
     """Resolve `acervo` dinamicamente no SQLite (lazy load) ou `lote_id` em RAM/SQLite."""
     ident = lote_id.strip()
+    if ident.lower() == "tudo":
+        repo_tudo = obter_repositorio_recebidas()
+        criado_em, resumo, resultados, xmls_brutos = repo_tudo.obter_visao_tudo(
+            _documento_consulta(repo_tudo)
+        )
+        return LoteArmazenado(
+            lote_id="tudo",
+            criado_em=criado_em,
+            resumo=resumo,
+            resultados=resultados,
+            xmls_brutos=xmls_brutos,
+        )
     if ident.lower() == "acervo":
         criado_em, resumo, resultados, xmls_brutos = (
             obter_repositorio_recebidas().obter_acervo_unificado(incluir_xmls_brutos=False)
@@ -481,6 +522,18 @@ def _obter_nota_e_xml_cirurgico(
 ) -> tuple[str, ResultadoAnalise, bytes]:
     """Busca apenas 1 nota e seu XML bruto sem descompactar o acervo/lote inteiro."""
     ident_lote = lote_id.strip()
+    if ident_lote.lower() == "tudo":
+        repo_t = obter_repositorio_recebidas()
+        achado_t = repo_t.obter_nota_e_xml_no_escopo("acervo", identificador)
+        if achado_t is not None:
+            return "tudo", achado_t[0], achado_t[1]
+        xml_t = repo_t.obter_xml_nota_recebida(identificador)
+        if xml_t:
+            chave_t = limpar_chave_acesso(identificador)
+            return "tudo", processar_arquivo_xml(xml_t, nome_arquivo=f"{chave_t}.xml"), xml_t
+        raise HTTPException(
+            status_code=404, detail=f"Nota '{identificador}' não encontrada na visão 'tudo'."
+        )
     if ident_lote.lower() == "acervo":
         achado = obter_repositorio_recebidas().obter_nota_e_xml_no_escopo("acervo", identificador)
         if achado is None:
@@ -907,6 +960,10 @@ def _montar_status_recebidas_sefaz(ambiente_override: int | None = None) -> Stat
     cursor = repo.obter_cursor(ambiente=amb)
     bloqueado, segundos_restantes = _calcular_estado_bloqueio(cursor)
     ultimos_logs = repo.listar_logs_sync(limite=5)
+    cursor_adn = repo.obter_cursor_adn(amb)
+    bloqueado_adn, segundos_adn = _calcular_estado_bloqueio(cursor_adn)  # type: ignore[arg-type]
+    ultimo_nfe = next(iter(repo.listar_logs_sync(limite=1, origem="NFE")), None)
+    ultimo_nfse = next(iter(repo.listar_logs_sync(limite=1, origem="NFSE")), None)
 
     return StatusRecebidasSEFAZ(
         certificado_configurado=cert_configurado,
@@ -923,6 +980,11 @@ def _montar_status_recebidas_sefaz(ambiente_override: int | None = None) -> Stat
         bloqueado=bloqueado,
         segundos_bloqueio_restantes=segundos_restantes,
         ultimos_logs=ultimos_logs,
+        cursor_adn=cursor_adn,
+        bloqueado_adn=bloqueado_adn,
+        segundos_bloqueio_adn_restantes=segundos_adn,
+        ultimo_sync_nfe=ultimo_nfe,
+        ultimo_sync_nfse=ultimo_nfse,
     )
 
 
@@ -1081,8 +1143,7 @@ def sincronizar_recebidas_adn(
     esperas: tuple[float, ...] | None = None
 
     if demo:
-        consultar_fn, documento_alvo, espera = criar_consultor_demo(amb), CNPJ_DEMO, 0.0
-        esperas = (0, 0, 0)
+        return carregar_demo_adn(repo, montar_itens_demo(), documento_alvo=CNPJ_DEMO, ambiente=amb)
     elif _CONSULTOR_ADN is not None:
         (consultar_fn, documento_alvo), espera = _CONSULTOR_ADN, 0.0
         esperas = (0, 0, 0)
@@ -1091,7 +1152,9 @@ def sincronizar_recebidas_adn(
             pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
             if ambiente is None:
                 amb = config_cert.ambiente
-            cliente = ClienteADN(pfx_bytes=pfx_bytes, senha=senha, ambiente=amb)
+            cliente = ClienteADN(
+                pfx_bytes=pfx_bytes, senha=senha, ambiente=amb, sessao_http=_SESSAO_HTTP_ADN
+            )
         except ErroCertificadoA1 as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1115,6 +1178,33 @@ def sincronizar_recebidas_adn(
         )
     except ErroBloqueioADN as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+
+@app.post("/api/recebidas/adn/diagnostico", response_model=DiagnosticoADN)
+def diagnosticar_conexao_adn(
+    ambiente: int | None = Query(default=None, description="1=Produção, 2=Produção restrita"),
+    tentativas: int = Query(default=1, ge=1, le=3),
+    url_base: str | None = Query(default=None, description="Sobrepõe NFE_ADN_URL_BASE"),
+) -> DiagnosticoADN:
+    """Uma consulta somente leitura a `GET /DFe/0`: não grava no banco nem mexe no cursor."""
+    cert_dir = obter_diretorio_certificado()
+    try:
+        pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
+        amb: Literal[1, 2] = (
+            resolver_ambiente_sefaz(ambiente) if ambiente is not None else config_cert.ambiente
+        )
+        cliente = ClienteADN(
+            pfx_bytes=pfx_bytes,
+            senha=senha,
+            ambiente=amb,
+            base_url=url_base,
+            sessao_http=_SESSAO_HTTP_ADN,
+        )
+    except ErroCertificadoA1 as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return diagnosticar_adn(cliente, tentativas=tentativas)
 
 
 @app.post("/api/recebidas/demo", response_model=ResumoExecucaoSync)
@@ -1163,12 +1253,20 @@ def carregar_recebidas_demo(
             lote_doc_zip=itens_doc_zip,
         )
 
-    return sincronizar_dist_dfe(
+    resumo = sincronizar_dist_dfe(
         consultar_fn=_consultor_demo,
         repo=repo,
         ambiente=amb,
         max_paginas=1,
     )
+    if not repo.obter_documento_consulta_recente():
+        # Só marca o CNPJ de referência da demonstração (não mexe em cursor de dados reais).
+        repo.salvar_cursor_adn(EstadoCursorADN(ambiente=amb, documento_consulta=CNPJ_DEMO))
+    resumo_adn = carregar_demo_adn(
+        repo, montar_itens_demo(), documento_alvo=CNPJ_DEMO, ambiente=amb
+    )
+    resumo.adn_novas_notas = resumo_adn.novas_notas + resumo_adn.notas_atualizadas
+    return resumo
 
 
 @app.get("/api/recebidas", response_model=ListaNotasRecebidasResponse)
@@ -1215,6 +1313,7 @@ def listar_recebidas(
         origem=origem,
         papel=papel,
         tipo=tipo,
+        documento_alvo=_documento_consulta(repo),
     )
     soma_valores = sum((n.valor_total for n in notas), DECIMAL_ZERO)
     return ListaNotasRecebidasResponse(

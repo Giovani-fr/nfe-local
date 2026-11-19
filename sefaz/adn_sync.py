@@ -178,6 +178,33 @@ def _consultar_com_repeticao(
     raise AssertionError("inalcançável")  # pragma: no cover
 
 
+def carregar_demo_adn(
+    repo: RepositorioDistDFeSQLite,
+    itens: list[ItemADN],
+    *,
+    documento_alvo: str,
+    ambiente: Literal[1, 2] = 2,
+    agora: datetime | None = None,
+) -> ResumoSyncADN:
+    """Grava NFS-e sintéticas SEM tocar no cursor nem no `sync_log` (não atrapalha dados reais)."""
+    resumo = ResumoSyncADN(cursor=repo.obter_cursor_adn(ambiente), encerrado_por="FILA_ZERADA")
+    referencia = agora or datetime.now(UTC)
+    ordenados = sorted(itens, key=lambda i: i.nsu if i.nsu is not None else 0)
+    resumo.documentos_recebidos = len(ordenados)
+    resumo.paginas_consultadas = 1
+    for item in ordenados:
+        _processar_item(
+            item,
+            repo=repo,
+            ambiente=ambiente,
+            documento_alvo=documento_alvo,
+            agora=referencia,
+            resumo=resumo,
+            max_bytes_xml=MAX_BYTES_XML_DOC_ZIP_PADRAO,
+        )
+    return resumo
+
+
 def sincronizar_adn(
     consultar_fn: Callable[[int], RespostaADN],
     repo: RepositorioDistDFeSQLite,
@@ -197,6 +224,7 @@ def sincronizar_adn(
     cursor = repo.obter_cursor_adn(ambiente)
     verificar_janela_adn(cursor, agora_fn())
 
+    cursor.documento_consulta = documento_alvo
     resumo = ResumoSyncADN(cursor=cursor)
     status_final = ""
     dormir: Callable[[float], None] = dormir_fn or time.sleep
