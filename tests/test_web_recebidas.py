@@ -392,18 +392,28 @@ class TestRotasRecebidasSEFAZ:
         assert resp.status_code == 200
         html = resp.text
         assert "Analisador de Lotes (Upload)" in html
-        assert "SEFAZ e ADN" in html
+        assert "Buscar notas (SEFAZ e Portal Nacional)" in html
         assert "Recebidas da SEFAZ (DistDFe)" not in html
+        assert ">🏛️ SEFAZ e ADN" not in html
         for rotulo in (
-            "Sincronizar NF-e (SEFAZ)",
-            "Sincronizar NFS-e (ADN)",
-            "Sincronizar tudo",
+            "Buscar NF-e de produto (SEFAZ)",
+            "Buscar NFS-e de serviço (Portal Nacional)",
+            "Buscar tudo",
+            "NF-e (produto)",
+            "NFS-e (serviço)",
+            "NFC-e (consumidor)",
+            "Só NF-e",
+            "Só NFS-e",
+            "O Portal Nacional só traz NFS-e do Padrão Nacional",
+            "XMLs ilegíveis (ERRO_XML)",
+            "Totais por tipo e por papel",
+            "Valor total (autorizadas)",
             "Diagnóstico do ADN",
             "Tudo (acervo + SEFAZ + ADN)",
             "Só emitidas",
             "Só tomadas",
-            "NFS-e (ADN): cursor NSU",
-            "NF-e (SEFAZ): cursor NSU",
+            "Serviço (Portal Nacional): até onde já buscamos",
+            "Produto (SEFAZ): até onde já buscamos",
         ):
             assert rotulo in html
         for ident in (
@@ -416,6 +426,20 @@ class TestRotasRecebidasSEFAZ:
             "rec-filtro-origem",
             "rec-filtro-papel",
             "passo-a-passo-cert",
+            "rec-seletor-tipo",
+            "seletor-tipo-notas",
+            "rec-cartoes-tipo",
+            "cartoes-tipo-notas",
+            "tbody-quebras",
+            "tbody-erros-xml",
+            "erros-xml-busca",
+            "erros-xml-codigo",
+            "kpi-fora-soma",
+            'data-tipo-sel=""',
+            'data-tipo-sel="NFSE"',
+            'data-tipo-sel-rec="NFCE"',
+            'data-tipo-rapido="NFE"',
+            'data-tipo-rapido="NFSE"',
             "adn-diagnostico",
             'data-papel-rapido="EMITIDA"',
             'data-papel-rapido="RECEBIDA"',
