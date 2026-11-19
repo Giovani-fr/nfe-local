@@ -34,6 +34,8 @@ from sefaz.dist_dfe import (
     RespostaDistDFe,
     parse_resposta_dist_dfe,
     resolver_ambiente_sefaz,
+    resolver_tentativas_sefaz,
+    resolver_timeout_sefaz,
 )
 from sefaz.storage import (
     RepositorioDistDFeSQLite,
@@ -131,6 +133,23 @@ def criar_parser() -> argparse.ArgumentParser:
         choices=(1, 2),
         default=None,
         help="Ambiente SEFAZ: 1=Produção, 2=Homologação (padrão: 2).",
+    )
+    parser_sync.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SEGUNDOS",
+        help="Tempo limite de cada chamada à SEFAZ (1 a 180 s; padrão 90, ou NFE_SEFAZ_TIMEOUT).",
+    )
+    parser_sync.add_argument(
+        "--tentativas",
+        type=int,
+        choices=(1, 2, 3, 4, 5),
+        default=None,
+        help=(
+            "Tentativas por consulta quando a CONEXÃO falha (1 a 5; padrão 3, ou "
+            "NFE_SEFAZ_TENTATIVAS). Nunca repete resposta SOAP (138, 137, 656...)."
+        ),
     )
     parser_sync.add_argument(
         "--demo",
@@ -364,11 +383,22 @@ def _imprimir_resumo_sync_terminal(resumo: ResumoExecucaoSync) -> None:
     print(f"Cursor NSU (ultNSU / maxNSU)    : {cur.ultimo_nsu} / {cur.max_nsu}")
     print(f"Último retorno SEFAZ            : cStat={cur.ultimo_cstat} ({cur.ultimo_motivo})")
     print(f"Bloqueio cStat 656 ativo        : {'SIM' if resumo.bloqueado_656 else 'NÃO'}")
+    print(f"Tentativas de conexão usadas    : {resumo.tentativas_usadas}")
+    for falha in resumo.falhas_conexao:
+        print(f"  - Falha de conexão            : {falha}")
+    if resumo.erro:
+        print(f"Erro                            : {resumo.erro}")
     print("=" * 64)
 
 
 def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
     amb = resolver_ambiente_sefaz(args.ambiente)
+    try:
+        timeout = resolver_timeout_sefaz(args.timeout)
+        tentativas = resolver_tentativas_sefaz(args.tentativas)
+    except ValueError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
     repo = RepositorioDistDFeSQLite(args.caminho_db)
 
     if args.demo:
@@ -392,6 +422,8 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
             consultar_fn=_consultar_demo,
             repo=repo,
             ambiente=amb,
+            tentativas=tentativas,
+            esperas_retentativa=(0, 0, 0),
         )
     else:
         try:
@@ -400,11 +432,13 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
                 pfx_bytes=pfx_bytes,
                 senha=senha,
                 ambiente=amb,
+                timeout_segundos=timeout,
             )
             resumo = sincronizar_dist_dfe(
                 consultar_fn=lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu),
                 repo=repo,
                 ambiente=amb,
+                tentativas=tentativas,
             )
         except (ErroCertificadoA1, ErroBloqueioSEFAZ, ErroComunicacaoSEFAZ) as exc:
             print(f"Erro: {exc}", file=sys.stderr)
@@ -414,6 +448,9 @@ def _executar_sincronizar_sefaz(args: argparse.Namespace) -> int:
         print(json.dumps(resumo.model_dump(mode="json"), ensure_ascii=False, indent=2))
     else:
         _imprimir_resumo_sync_terminal(resumo)
+    if resumo.erro:
+        print(f"Erro: {resumo.erro}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -79,6 +79,8 @@ from sefaz.dist_dfe import (
     ItemDocZip,
     RespostaDistDFe,
     resolver_ambiente_sefaz,
+    resolver_tentativas_sefaz,
+    resolver_timeout_sefaz,
 )
 from sefaz.segredos import pasta_parece_sincronizada
 from sefaz.storage import (
@@ -290,6 +292,7 @@ _REPOSITORIO_RECEBIDAS: RepositorioDistDFeSQLite | None = None
 _CONSULTOR_DIST_DFE: Callable[[str], RespostaDistDFe] | None = None
 _CONSULTOR_ADN: tuple[Callable[[int], RespostaADN], str] | None = None
 _SESSAO_HTTP_ADN: Any | None = None
+_SESSAO_HTTP_SEFAZ: Any | None = None
 _DIRETORIO_CERTIFICADO: Path | None = None
 
 
@@ -327,6 +330,12 @@ def definir_consultor_dist_dfe(fn: Callable[[str], RespostaDistDFe] | None) -> N
     """Injeta uma função `(ult_nsu) -> RespostaDistDFe` para testes offline de sincronização."""
     global _CONSULTOR_DIST_DFE
     _CONSULTOR_DIST_DFE = fn
+
+
+def definir_sessao_http_sefaz(sessao: Any | None) -> None:
+    """Injeta uma sessão HTTP simulada no cliente do NFeDistribuicaoDFe (testes sem rede)."""
+    global _SESSAO_HTTP_SEFAZ
+    _SESSAO_HTTP_SEFAZ = sessao
 
 
 def definir_sessao_http_adn(sessao: Any | None) -> None:
@@ -1093,8 +1102,20 @@ def sincronizar_recebidas_sefaz(
     ambiente: int | None = Query(
         default=None, description="Ambiente SEFAZ (1=Produção, 2=Homologação)"
     ),
+    tentativas: int | None = Query(
+        default=None, ge=1, le=5, description="Tentativas por consulta se a CONEXÃO falhar"
+    ),
+    timeout: float | None = Query(
+        default=None, ge=1, le=180, description="Tempo limite de cada chamada, em segundos"
+    ),
 ) -> ResumoExecucaoSync:
     """Executa uma rodada de sincronização `DistDFe` respeitando a trava de 1h (`656`)."""
+    try:
+        n_tentativas = resolver_tentativas_sefaz(tentativas)
+        tempo_limite = resolver_timeout_sefaz(timeout)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    esperas_sef: tuple[float, ...] | None = None
     cert_dir = obter_diretorio_certificado()
     config_local = ler_config_sefaz_local(cert_dir)
     amb: Literal[1, 2] = (
@@ -1109,6 +1130,8 @@ def sincronizar_recebidas_sefaz(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     consultar_fn = _CONSULTOR_DIST_DFE
+    if consultar_fn is not None:
+        esperas_sef = (0, 0, 0)
     if consultar_fn is None:
         try:
             pfx_bytes, senha, _, config_cert = carregar_certificado_configurado(cert_dir)
@@ -1123,6 +1146,8 @@ def sincronizar_recebidas_sefaz(
             senha=senha,
             uf_autor=config_cert.uf_autor,
             ambiente=amb,
+            sessao_http=_SESSAO_HTTP_SEFAZ,
+            timeout_segundos=tempo_limite,
         )
         consultar_fn = lambda ult_nsu: cliente.consultar_dist_nsu(ult_nsu=ult_nsu)  # noqa: E731
 
@@ -1131,9 +1156,13 @@ def sincronizar_recebidas_sefaz(
             consultar_fn=consultar_fn,
             repo=repo,
             ambiente=amb,
+            tentativas=n_tentativas,
+            **({"esperas_retentativa": esperas_sef} if esperas_sef is not None else {}),
         )
     except ErroBloqueioSEFAZ as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ErroCertificadoA1 as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ErroComunicacaoSEFAZ as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

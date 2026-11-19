@@ -3,6 +3,7 @@
 
   const estado = {
     escopoId: "acervo",
+    buscando: false,
     loteId: null,
     resumo: null,
     resultados: [],
@@ -1280,7 +1281,7 @@
         if (btnAdn) btnAdn.disabled = true;
       } else {
         bannerAdn.classList.add("hidden");
-        if (btnAdn) btnAdn.disabled = false;
+        if (btnAdn) btnAdn.disabled = estado.buscando;
       }
     }
   };
@@ -1392,7 +1393,7 @@
           if (btnSync) btnSync.disabled = true;
         } else {
           bannerBloqueio.classList.add("hidden");
-          if (btnSync) btnSync.disabled = false;
+          if (btnSync) btnSync.disabled = estado.buscando;
         }
       }
       preencherPainelUnificado(st);
@@ -1757,10 +1758,16 @@
       if (!resp.ok) {
         return { erro: true, texto: `NF-e: ${dados.detail || `falha na busca (HTTP ${resp.status}).`}` };
       }
-      return {
-        erro: false,
-        texto: `NF-e (SEFAZ): ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s).`,
-      };
+      let txt = `NF-e (SEFAZ): ${dados.paginas_consultadas} página(s), ${dados.novas_notas} nova(s), ${dados.notas_atualizadas} atualizada(s), ${dados.eventos_registrados} evento(s)`;
+      if (Number(dados.tentativas_usadas) > Number(dados.paginas_consultadas)) {
+        txt += `; ${dados.tentativas_usadas} tentativa(s) de conexão`;
+      }
+      txt += ".";
+      if (dados.erro) {
+        // Falha de conexão/tempo esgotado depois de esgotar as tentativas: o que veio antes ficou gravado.
+        return { erro: true, texto: `${txt} ${dados.erro}` };
+      }
+      return { erro: false, texto: txt };
     } catch (err) {
       return { erro: true, texto: `NF-e: erro de comunicação (${err.message}).` };
     }
@@ -1803,27 +1810,54 @@
     if (estado.escopoId === "tudo") await carregarEscopo("tudo");
   };
 
-  const sincronizarComSefaz = async () => {
-    definirStatusRecebidas("Buscando NF-e de produto na SEFAZ (NFeDistribuicaoDFe)...");
-    const r = await executarSincNfe();
-    definirStatusRecebidas(r.texto, r.erro);
-    await depoisDeSincronizar();
+  const BOTOES_BUSCA = ["btn-sync-sefaz", "btn-sync-adn", "btn-sync-tudo"];
+
+  const definirBuscando = (ativo) => {
+    estado.buscando = ativo;
+    BOTOES_BUSCA.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = ativo;
+      el.setAttribute("aria-busy", ativo ? "true" : "false");
+    });
   };
 
-  const sincronizarComAdn = async () => {
-    definirStatusRecebidas("Buscando NFS-e de serviço (emitidas e tomadas) no Portal Nacional (ADN)...");
-    const r = await executarSincNfse();
-    definirStatusRecebidas(r.texto, r.erro);
-    await depoisDeSincronizar();
+  // Impede cliques repetidos enquanto uma busca roda (a SEFAZ pode levar alguns minutos)
+  const executarBusca = async (corpo) => {
+    if (estado.buscando) return;
+    definirBuscando(true);
+    try {
+      await corpo();
+    } finally {
+      definirBuscando(false);
+      await depoisDeSincronizar();
+    }
   };
 
-  const sincronizarTudo = async () => {
-    definirStatusRecebidas("Buscando NF-e de produto (SEFAZ) e depois NFS-e de serviço (Portal Nacional)...");
-    const nfe = await executarSincNfe();
-    const nfse = await executarSincNfse();
-    definirStatusRecebidas(`${nfe.texto} | ${nfse.texto}`, nfe.erro || nfse.erro);
-    await depoisDeSincronizar();
-  };
+  const MSG_AGUARDANDO_SEFAZ = "Aguardando a SEFAZ (pode levar até alguns minutos)...";
+
+  const sincronizarComSefaz = () =>
+    executarBusca(async () => {
+      definirStatusRecebidas(MSG_AGUARDANDO_SEFAZ);
+      const r = await executarSincNfe();
+      definirStatusRecebidas(r.texto, r.erro);
+    });
+
+  const sincronizarComAdn = () =>
+    executarBusca(async () => {
+      definirStatusRecebidas("Buscando NFS-e de serviço (emitidas e tomadas) no Portal Nacional (ADN)...");
+      const r = await executarSincNfse();
+      definirStatusRecebidas(r.texto, r.erro);
+    });
+
+  const sincronizarTudo = () =>
+    executarBusca(async () => {
+      definirStatusRecebidas(`${MSG_AGUARDANDO_SEFAZ} Depois, NFS-e de serviço (Portal Nacional).`);
+      const nfe = await executarSincNfe();
+      definirStatusRecebidas(`${nfe.texto} | Buscando NFS-e de serviço no Portal Nacional...`, nfe.erro);
+      const nfse = await executarSincNfse();
+      definirStatusRecebidas(`${nfe.texto} | ${nfse.texto}`, nfe.erro || nfse.erro);
+    });
 
   const renderizarDiagnosticoAdn = (d) => {
     const nomeAmb = d.ambiente === 1 ? "Produção (1)" : "Produção restrita (2)";
