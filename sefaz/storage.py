@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from models.fiscal import ResultadoAnalise
+from models.fiscal import DocumentoFiscal, ResultadoAnalise
 from models.normalizadores import (
     DECIMAL_ZERO,
     limpar_chave_acesso,
@@ -22,6 +22,7 @@ from models.normalizadores import (
     para_decimal,
 )
 from reports.resumo import ResumoLote, gerar_resumo_lote
+from sefaz.adn import EstadoCursorADN
 from sefaz.controle_nsu import EstadoCursorNSU, executar_loop_nsu
 from sefaz.descompactador import (
     CategoriaSchemaDocZip,
@@ -33,6 +34,17 @@ from sefaz.dist_dfe import RespostaDistDFe, formatar_nsu
 CAMINHO_DB_PADRAO = "data/nfe_recebidas.db"
 StatusPersistenciaDoc = Literal["NOVA", "ATUALIZADA", "EVENTO", "IGNORADA"]
 TIPOS_EVENTO_CANCELAMENTO = {"110111", "110112"}
+# Eventos do ADN (NFS-e) que efetivamente cancelam a nota. A *solicitação* de cancelamento
+# para análise fiscal NÃO cancela; é só um pedido.
+TIPOS_EVENTO_CANCELAMENTO_ADN = {
+    "CANCELAMENTO",
+    "CANCELAMENTO_POR_SUBSTITUICAO",
+    "CANCELAMENTO_DEFERIDO_ANALISE_FISCAL",
+    "CANCELAMENTO_POR_OFICIO",
+}
+_TODOS_CANCELAMENTO = sorted(TIPOS_EVENTO_CANCELAMENTO | TIPOS_EVENTO_CANCELAMENTO_ADN)
+ORIGEM_DISTDFE = "DISTDFE"
+ORIGEM_ADN = "ADN"
 
 _DDL_TABELAS = """
 CREATE TABLE IF NOT EXISTS dfe_cursor (
@@ -100,6 +112,15 @@ CREATE TABLE IF NOT EXISTS sync_log (
     ultimo_nsu TEXT
 );
 
+CREATE TABLE IF NOT EXISTS adn_cursor (
+    ambiente INTEGER PRIMARY KEY,
+    ultimo_nsu INTEGER NOT NULL DEFAULT 0,
+    ultima_consulta TEXT,
+    bloqueado_ate TEXT,
+    ultimo_status TEXT,
+    ultimo_motivo TEXT
+);
+
 CREATE TABLE IF NOT EXISTS lotes_upload (
     lote_id TEXT PRIMARY KEY,
     nome_rotulo TEXT NOT NULL,
@@ -134,6 +155,32 @@ CREATE INDEX IF NOT EXISTS idx_lotes_itens_chave
     ON lotes_upload_itens(chave_acesso);
 """
 
+# Migração ADITIVA do banco (só acrescenta colunas e índices; nunca apaga nem reescreve linhas).
+# `ALTER TABLE ... ADD COLUMN ... DEFAULT` não reescreve as linhas existentes no SQLite.
+_COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
+    ("notas_recebidas", "origem", "TEXT NOT NULL DEFAULT 'DISTDFE'"),
+    ("notas_recebidas", "papel", "TEXT"),
+    ("sync_log", "origem", "TEXT NOT NULL DEFAULT 'NFE'"),
+)
+_INDICES_NOVOS: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_notas_recebidas_origem ON notas_recebidas(origem)",
+    "CREATE INDEX IF NOT EXISTS idx_notas_recebidas_papel ON notas_recebidas(papel)",
+    "CREATE INDEX IF NOT EXISTS idx_notas_recebidas_tipo ON notas_recebidas(tipo_documento)",
+)
+
+
+def migrar_schema_aditivo(conn: sqlite3.Connection) -> list[str]:
+    """Acrescenta colunas/índices ausentes. Idempotente. Retorna o que foi acrescentado."""
+    acrescentados: list[str] = []
+    for tabela, coluna, definicao in _COLUNAS_NOVAS:
+        existentes = {r[1] for r in conn.execute(f"PRAGMA table_info({tabela})")}
+        if coluna not in existentes:
+            conn.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}")
+            acrescentados.append(f"{tabela}.{coluna}")
+    for ddl in _INDICES_NOVOS:
+        conn.execute(ddl)
+    return acrescentados
+
 
 class RegistroNotaRecebida(BaseModel):
     """Representação persistida de uma nota fiscal recebida via `NFeDistribuicaoDFe`."""
@@ -159,6 +206,8 @@ class RegistroNotaRecebida(BaseModel):
     situacao: str
     manifestacao_necessaria: bool = False
     valido: bool = True
+    origem: str = ORIGEM_DISTDFE
+    papel: str | None = None
     atualizado_em: datetime
 
 
@@ -175,6 +224,7 @@ class RegistroSyncLog(BaseModel):
     paginas: int = 0
     novos_docs: int = 0
     ultimo_nsu: str = "000000000000000"
+    origem: str = "NFE"
 
 
 class ResumoExecucaoSync(BaseModel):
@@ -266,6 +316,8 @@ def _converter_linha_nota(row: sqlite3.Row) -> RegistroNotaRecebida:
         situacao=row["situacao"],
         manifestacao_necessaria=bool(row["manifestacao_necessaria"]),
         valido=bool(row["valido"]),
+        origem=row["origem"] or ORIGEM_DISTDFE,
+        papel=row["papel"],
         atualizado_em=dt_atualizado,
     )
 
@@ -291,6 +343,7 @@ class RepositorioDistDFeSQLite:
     def _inicializar_schema(self) -> None:
         with self._conectar() as conn:
             conn.executescript(_DDL_TABELAS)
+            migrar_schema_aditivo(conn)
 
     def obter_cursor(self, ambiente: Literal[1, 2] = 2) -> EstadoCursorNSU:
         """Lê o `EstadoCursorNSU` do ambiente ou retorna um cursor zerado (`000000000000000`)."""
@@ -415,10 +468,10 @@ class RepositorioDistDFeSQLite:
             ev_cancel = conn.execute(
                 """
                 SELECT 1 FROM eventos_recebidos
-                WHERE chave = ? AND tipo_evento IN ('110111', '110112')
+                WHERE chave = ? AND tipo_evento IN (?, ?, ?, ?, ?, ?)
                 LIMIT 1
                 """,
-                (chave,),
+                (chave, *_TODOS_CANCELAMENTO),
             ).fetchone()
 
             situacao_final = "CANCELADA" if ev_cancel is not None else doc.situacao
@@ -530,6 +583,191 @@ class RepositorioDistDFeSQLite:
             )
             return "ATUALIZADA"
 
+    def obter_cursor_adn(self, ambiente: Literal[1, 2] = 2) -> EstadoCursorADN:
+        """Lê o cursor de NSU do ADN (independente do `dfe_cursor` do NFeDistribuicaoDFe)."""
+        amb: Literal[1, 2] = 1 if ambiente == 1 else 2
+        with self._conectar() as conn:
+            row = conn.execute("SELECT * FROM adn_cursor WHERE ambiente = ?", (amb,)).fetchone()
+        if row is None:
+            return EstadoCursorADN(ambiente=amb)
+        return EstadoCursorADN(
+            ambiente=amb,
+            ultimo_nsu=int(row["ultimo_nsu"]),
+            ultima_consulta=_iso_para_dt(row["ultima_consulta"]),
+            bloqueado_ate=_iso_para_dt(row["bloqueado_ate"]),
+            ultimo_status=row["ultimo_status"],
+            ultimo_motivo=row["ultimo_motivo"],
+        )
+
+    def salvar_cursor_adn(self, cursor: EstadoCursorADN) -> None:
+        """Upsert do cursor do ADN."""
+        amb = 1 if cursor.ambiente == 1 else 2
+        with self._conectar() as conn:
+            conn.execute(
+                """
+                INSERT INTO adn_cursor (
+                    ambiente, ultimo_nsu, ultima_consulta, bloqueado_ate,
+                    ultimo_status, ultimo_motivo
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ambiente) DO UPDATE SET
+                    ultimo_nsu = excluded.ultimo_nsu,
+                    ultima_consulta = excluded.ultima_consulta,
+                    bloqueado_ate = excluded.bloqueado_ate,
+                    ultimo_status = excluded.ultimo_status,
+                    ultimo_motivo = excluded.ultimo_motivo
+                """,
+                (
+                    amb,
+                    int(cursor.ultimo_nsu),
+                    _dt_para_iso(cursor.ultima_consulta),
+                    _dt_para_iso(cursor.bloqueado_ate),
+                    cursor.ultimo_status,
+                    cursor.ultimo_motivo,
+                ),
+            )
+
+    def salvar_nfse_adn(
+        self,
+        *,
+        chave: str,
+        nsu: int,
+        doc: DocumentoFiscal,
+        xml_bytes: bytes,
+        papel: str | None,
+        ambiente: Literal[1, 2] = 2,
+        agora: datetime | None = None,
+    ) -> StatusPersistenciaDoc:
+        """Persiste uma NFS-e do ADN, deduplicando por chave (50 posições) e sem rebaixar."""
+        chave_limpa = limpar_chave_acesso(chave)
+        if not chave_limpa:
+            return "IGNORADA"
+        amb = 1 if ambiente == 1 else 2
+        ts_atual = _dt_para_iso(agora or datetime.now(UTC)) or datetime.now(UTC).isoformat()
+        xml_gz = gzip.compress(xml_bytes, compresslevel=6) if xml_bytes else None
+        dest = doc.destinatario
+        dt_emi_iso = _dt_para_iso(doc.data_emissao)
+        dt_emi_date = doc.data_emissao.date().isoformat() if doc.data_emissao else None
+        valor_dec = doc.totais.valor_total_nota
+        nsu_txt = str(nsu).zfill(15)
+
+        with self._conectar() as conn:
+            existente = conn.execute(
+                "SELECT situacao FROM notas_recebidas WHERE chave = ?", (chave_limpa,)
+            ).fetchone()
+            cancelada_antes = conn.execute(
+                """
+                SELECT 1 FROM eventos_recebidos
+                WHERE chave = ? AND tipo_evento IN (?, ?, ?, ?, ?, ?) LIMIT 1
+                """,
+                (chave_limpa, *_TODOS_CANCELAMENTO),
+            ).fetchone()
+            situacao = "CANCELADA" if cancelada_antes is not None else doc.situacao
+
+            valores = (
+                nsu_txt,
+                amb,
+                "NFSe",
+                "NFSE_NACIONAL",
+                doc.tipo,
+                doc.modelo,
+                doc.numero,
+                doc.serie,
+                doc.emitente.documento,
+                doc.emitente.razao_social,
+                doc.emitente.uf,
+                dest.documento if dest else "",
+                dest.razao_social if dest else "",
+                dt_emi_iso,
+                dt_emi_date,
+                f"{valor_dec:.2f}",
+                float(valor_dec),
+            )
+            if existente is None:
+                conn.execute(
+                    """
+                    INSERT INTO notas_recebidas (
+                        nsu, ambiente, schema_xml, categoria_schema, tipo_documento, modelo,
+                        numero, serie, emitente_documento, emitente_nome, emitente_uf,
+                        destinatario_documento, destinatario_nome, data_emissao,
+                        data_emissao_iso_date, valor_total, valor_total_num,
+                        situacao, manifestacao_necessaria, valido, xml_gzip, atualizado_em,
+                        origem, papel, chave
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              ?, 0, 1, ?, ?, 'ADN', ?, ?)
+                    """,
+                    (*valores, situacao, xml_gz, ts_atual, papel, chave_limpa),
+                )
+                return "NOVA"
+
+            # Nunca rebaixa: nota já autorizada/cancelada não volta a "sem protocolo".
+            if doc.situacao == "SEM_PROTOCOLO" and existente["situacao"] in (
+                "AUTORIZADA",
+                "CANCELADA",
+            ):
+                return "IGNORADA"
+            if existente["situacao"] == "CANCELADA":
+                situacao = "CANCELADA"
+            conn.execute(
+                """
+                UPDATE notas_recebidas SET
+                    nsu = ?, ambiente = ?, schema_xml = ?, categoria_schema = ?,
+                    tipo_documento = ?, modelo = ?, numero = ?, serie = ?,
+                    emitente_documento = ?, emitente_nome = ?, emitente_uf = ?,
+                    destinatario_documento = ?, destinatario_nome = ?,
+                    data_emissao = ?, data_emissao_iso_date = ?,
+                    valor_total = ?, valor_total_num = ?, situacao = ?,
+                    xml_gzip = COALESCE(?, xml_gzip), atualizado_em = ?,
+                    papel = COALESCE(?, papel)
+                WHERE chave = ?
+                """,
+                (*valores, situacao, xml_gz, ts_atual, papel, chave_limpa),
+            )
+            return "ATUALIZADA"
+
+    def salvar_evento_adn(
+        self,
+        *,
+        chave: str,
+        nsu: int,
+        tipo_evento: str,
+        xml_bytes: bytes,
+        data_evento: datetime | None,
+        ambiente: Literal[1, 2] = 2,
+        agora: datetime | None = None,
+    ) -> StatusPersistenciaDoc:
+        """Guarda o evento e, se for cancelamento efetivo, marca a nota (sem alterar mais nada)."""
+        chave_limpa = limpar_chave_acesso(chave)
+        if not chave_limpa:
+            return "IGNORADA"
+        amb = 1 if ambiente == 1 else 2
+        ts_atual = _dt_para_iso(agora or datetime.now(UTC)) or datetime.now(UTC).isoformat()
+        xml_gz = gzip.compress(xml_bytes, compresslevel=6) if xml_bytes else None
+        with self._conectar() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO eventos_recebidos (
+                    chave, nsu, ambiente, tipo_evento, descricao_evento,
+                    data_evento, protocolo, xml_gzip
+                ) VALUES (?, ?, ?, ?, ?, ?, '', ?)
+                """,
+                (
+                    chave_limpa,
+                    str(nsu).zfill(15),
+                    amb,
+                    tipo_evento,
+                    tipo_evento,
+                    _dt_para_iso(data_evento),
+                    xml_gz,
+                ),
+            )
+            if tipo_evento in TIPOS_EVENTO_CANCELAMENTO_ADN:
+                conn.execute(
+                    "UPDATE notas_recebidas SET situacao = 'CANCELADA', atualizado_em = ? "
+                    "WHERE chave = ?",
+                    (ts_atual, chave_limpa),
+                )
+        return "EVENTO"
+
     def obter_nota_recebida(self, chave: str) -> RegistroNotaRecebida | None:
         """Busca os metadados de uma nota recebida pela chave de acesso de 44 posições."""
         chave_limpa = limpar_chave_acesso(chave)
@@ -542,7 +780,7 @@ class RepositorioDistDFeSQLite:
                     emitente_documento, emitente_nome, emitente_uf,
                     destinatario_documento, destinatario_nome,
                     data_emissao, valor_total, situacao,
-                    manifestacao_necessaria, valido, atualizado_em
+                    manifestacao_necessaria, valido, origem, papel, atualizado_em
                 FROM notas_recebidas
                 WHERE chave = ?
                 """,
@@ -577,6 +815,9 @@ class RepositorioDistDFeSQLite:
         valor_max: Decimal | float | None = None,
         categoria: str | None = None,
         situacao: str | None = None,
+        origem: str | None = None,
+        papel: str | None = None,
+        tipo: str | None = None,
     ) -> list[RegistroNotaRecebida]:
         """Lista notas recebidas ordenadas por `data_emissao DESC, nsu DESC` com filtros."""
         amb_param = int(ambiente) if ambiente in (1, 2) else None
@@ -596,6 +837,9 @@ class RepositorioDistDFeSQLite:
         v_max = float(valor_max) if valor_max is not None else None
         cat_param = categoria.strip().upper() if categoria and categoria.strip() else None
         sit_param = situacao.strip().upper() if situacao and situacao.strip() else None
+        ori_param = origem.strip().upper() if origem and origem.strip() else None
+        pap_param = papel.strip().upper() if papel and papel.strip() else None
+        tip_param = tipo.strip().upper() if tipo and tipo.strip() else None
 
         with self._conectar() as conn:
             rows = conn.execute(
@@ -606,7 +850,7 @@ class RepositorioDistDFeSQLite:
                     emitente_documento, emitente_nome, emitente_uf,
                     destinatario_documento, destinatario_nome,
                     data_emissao, valor_total, situacao,
-                    manifestacao_necessaria, valido, atualizado_em
+                    manifestacao_necessaria, valido, origem, papel, atualizado_em
                 FROM notas_recebidas
                 WHERE (? IS NULL OR ambiente = ?)
                   AND (
@@ -620,6 +864,9 @@ class RepositorioDistDFeSQLite:
                   AND (? IS NULL OR valor_total_num <= ?)
                   AND (? IS NULL OR categoria_schema = ?)
                   AND (? IS NULL OR situacao = ?)
+                  AND (? IS NULL OR origem = ?)
+                  AND (? IS NULL OR papel = ?)
+                  AND (? IS NULL OR tipo_documento = ?)
                 ORDER BY COALESCE(data_emissao, '') DESC, nsu DESC
                 """,
                 (
@@ -641,6 +888,12 @@ class RepositorioDistDFeSQLite:
                     cat_param,
                     sit_param,
                     sit_param,
+                    ori_param,
+                    ori_param,
+                    pap_param,
+                    pap_param,
+                    tip_param,
+                    tip_param,
                 ),
             ).fetchall()
 
@@ -656,6 +909,7 @@ class RepositorioDistDFeSQLite:
         novos_docs: int,
         ultimo_nsu: str,
         ts: datetime | None = None,
+        origem: Literal["NFE", "NFSE"] = "NFE",
     ) -> int:
         """Grava um registro de auditoria na tabela `sync_log` e retorna o `id` gerado."""
         amb = 1 if ambiente == 1 else 2
@@ -664,8 +918,8 @@ class RepositorioDistDFeSQLite:
             cur = conn.execute(
                 """
                 INSERT INTO sync_log (
-                    ts, ambiente, cstat, motivo, paginas, novos_docs, ultimo_nsu
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ts, ambiente, cstat, motivo, paginas, novos_docs, ultimo_nsu, origem
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts_str,
@@ -674,7 +928,8 @@ class RepositorioDistDFeSQLite:
                     motivo,
                     paginas,
                     novos_docs,
-                    formatar_nsu(ultimo_nsu),
+                    str(ultimo_nsu) if origem == "NFSE" else formatar_nsu(ultimo_nsu),
+                    origem,
                 ),
             )
             return int(cur.lastrowid or 0)
@@ -701,6 +956,7 @@ class RepositorioDistDFeSQLite:
                     paginas=int(r["paginas"]),
                     novos_docs=int(r["novos_docs"]),
                     ultimo_nsu=r["ultimo_nsu"] or "000000000000000",
+                    origem=r["origem"] or "NFE",
                 )
             )
         return logs
@@ -1093,6 +1349,7 @@ class RepositorioDistDFeSQLite:
                 conn.execute("DELETE FROM eventos_recebidos")
                 if zerar_cursor:
                     conn.execute("DELETE FROM dfe_cursor")
+                    conn.execute("DELETE FROM adn_cursor")
                     conn.execute("DELETE FROM sync_log")
                 return int(cur_notas.rowcount or 0)
         finally:
@@ -1108,6 +1365,7 @@ class RepositorioDistDFeSQLite:
                 cur_recebidas = conn.execute("DELETE FROM notas_recebidas")
                 conn.execute("DELETE FROM eventos_recebidos")
                 conn.execute("DELETE FROM dfe_cursor")
+                conn.execute("DELETE FROM adn_cursor")
                 conn.execute("DELETE FROM sync_log")
                 lotes_removidos = int(cur_lotes.rowcount or 0)
                 recebidas_removidas = int(cur_recebidas.rowcount or 0)
