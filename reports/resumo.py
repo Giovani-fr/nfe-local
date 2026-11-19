@@ -12,6 +12,17 @@ from models.normalizadores import DECIMAL_ZERO, limpar_chave_acesso
 
 _TIPOS_FINANCEIROS = {"NFE", "NFCE", "NFSE", "RESUMO"}
 
+# Agrupa o resumo `resNFe` com a NF-e de produto nos totais por tipo.
+GRUPO_TIPO = {"NFE": "NFE", "RESUMO": "NFE", "NFCE": "NFCE", "NFSE": "NFSE"}
+PAPEIS_QUEBRA = ("EMITIDA", "RECEBIDA", "INTERMEDIARIA", "SEM_PAPEL")
+CRITERIO_SOMAS = (
+    "As somas de valor consideram NF-e (produto), NFS-e (serviço) e NFC-e (consumidor) "
+    "autorizadas, sem repetir a mesma chave. Notas CANCELADAS e eventos ficam fora da soma e "
+    "aparecem à parte, com a contagem. Emitida/Recebida/Intermediária compara o CNPJ de "
+    "consulta (o do certificado) com o emitente/prestador e o destinatário/tomador; sem esse "
+    'CNPJ de referência a nota entra em "Sem papel". O valor de um resumo (resNFe) conta na NF-e.'
+)
+
 
 def _somar_impostos(destino: ImpostoTotal, origem: ImpostoTotal) -> None:
     """Acumula in-place os campos de `ImpostoTotal`."""
@@ -67,6 +78,7 @@ class ContagemStatusLote(BaseModel):
     com_avisos: int = 0
     erros_fatais_xml: int = 0
     duplicados_ignorados_nos_totais: int = 0
+    canceladas_fora_dos_totais: int = 0
     por_tipo: dict[str, int] = Field(default_factory=dict)
 
 
@@ -83,6 +95,7 @@ class ResumoLote(BaseModel):
     valor_outras_despesas_total: Decimal = DECIMAL_ZERO
     valor_liquido_total: Decimal = DECIMAL_ZERO
     valor_total_notas: Decimal = DECIMAL_ZERO
+    valor_canceladas_fora_dos_totais: Decimal = DECIMAL_ZERO
     impostos_totais: ImpostoTotal = Field(default_factory=ImpostoTotal)
     por_emitente: list[ResumoEmitente] = Field(default_factory=list)
     por_mes: list[ResumoPeriodo] = Field(default_factory=list)
@@ -101,6 +114,7 @@ class AcumuladorResumoLote:
         self._valor_outras_despesas = DECIMAL_ZERO
         self._valor_liquido = DECIMAL_ZERO
         self._valor_total_notas = DECIMAL_ZERO
+        self._valor_canceladas = DECIMAL_ZERO
         self._impostos_totais = ImpostoTotal()
 
         self._emitentes: dict[str, ResumoEmitente] = {}
@@ -144,6 +158,12 @@ class AcumuladorResumoLote:
         tot = doc.totais
         v_prod = tot.valor_produtos_servicos
         v_tot = tot.valor_total_nota
+
+        if doc.situacao == "CANCELADA":
+            # Nota cancelada não entra em nenhuma soma de valor: fica à parte, só contada.
+            self._contagem.canceladas_fora_dos_totais += 1
+            self._valor_canceladas += v_tot
+            return
         v_liq = tot.valor_liquido if tot.valor_liquido != DECIMAL_ZERO else v_tot
 
         self._valor_produtos_servicos += v_prod
@@ -206,6 +226,7 @@ class AcumuladorResumoLote:
             valor_outras_despesas_total=self._valor_outras_despesas,
             valor_liquido_total=self._valor_liquido,
             valor_total_notas=self._valor_total_notas,
+            valor_canceladas_fora_dos_totais=self._valor_canceladas,
             impostos_totais=self._impostos_totais.model_copy(deep=True),
             por_emitente=emitentes_ordenados,
             por_mes=meses_ordenados,
@@ -219,3 +240,142 @@ def gerar_resumo_lote(resultados: Iterable[ResultadoAnalise]) -> ResumoLote:
     for resultado in resultados:
         acumulador.adicionar(resultado)
     return acumulador.consolidar()
+
+
+# --- Quebras por tipo e por papel (para os cartões e o painel de resumo) -----------------------
+
+
+class SomaPapel(BaseModel):
+    """Quantidade e valor de um recorte."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    quantidade: int = 0
+    valor: Decimal = DECIMAL_ZERO
+
+
+class QuebraTipo(BaseModel):
+    """Soma de um tipo (NFE/NFSE/NFCE) e sua divisão por papel."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    quantidade: int = 0
+    valor: Decimal = DECIMAL_ZERO
+    papeis: dict[str, SomaPapel] = Field(default_factory=dict)
+
+
+class ErroXmlDetalhe(BaseModel):
+    """Um XML ilegível (ERRO_XML) e o motivo."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    arquivo: str
+    codigo: str
+    motivo: str
+
+
+class QuebrasResumo(BaseModel):
+    """Totais separados por tipo e por papel, sem canceladas e sem eventos."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    por_tipo: dict[str, QuebraTipo] = Field(default_factory=dict)
+    por_papel: dict[str, SomaPapel] = Field(default_factory=dict)
+    quantidade_total: int = 0
+    valor_total: Decimal = DECIMAL_ZERO
+    canceladas: SomaPapel = Field(default_factory=SomaPapel)
+    canceladas_por_tipo: dict[str, int] = Field(default_factory=dict)
+    eventos: int = 0
+    resumos_nfe: int = 0
+    duplicadas_ignoradas: int = 0
+    erros_xml: list[ErroXmlDetalhe] = Field(default_factory=list)
+    criterio: str = CRITERIO_SOMAS
+
+
+class AcumuladorQuebras:
+    """Acumula os totais por tipo e papel (sem canceladas nem eventos)."""
+
+    def __init__(self) -> None:
+        self._q = QuebrasResumo(
+            por_tipo={
+                t: QuebraTipo(papeis={p: SomaPapel() for p in PAPEIS_QUEBRA})
+                for t in ("NFE", "NFSE", "NFCE")
+            },
+            por_papel={p: SomaPapel() for p in PAPEIS_QUEBRA},
+        )
+        self._chaves: set[str] = set()
+
+    def adicionar_nota(
+        self,
+        tipo: str,
+        papel: str | None,
+        valor: Decimal,
+        cancelada: bool,
+        chave: str = "",
+    ) -> None:
+        grupo = GRUPO_TIPO.get(tipo)
+        if grupo is None:
+            return
+        chave_limpa = limpar_chave_acesso(chave) if chave else ""
+        if chave_limpa:
+            if chave_limpa in self._chaves:
+                self._q.duplicadas_ignoradas += 1
+                return
+            self._chaves.add(chave_limpa)
+        if cancelada:
+            self._q.canceladas.quantidade += 1
+            self._q.canceladas.valor += valor
+            self._q.canceladas_por_tipo[grupo] = self._q.canceladas_por_tipo.get(grupo, 0) + 1
+            return
+        if tipo == "RESUMO":
+            self._q.resumos_nfe += 1
+        chave_papel = papel if papel in PAPEIS_QUEBRA else "SEM_PAPEL"
+        bloco = self._q.por_tipo[grupo]
+        bloco.quantidade += 1
+        bloco.valor += valor
+        bloco.papeis[chave_papel].quantidade += 1
+        bloco.papeis[chave_papel].valor += valor
+        self._q.por_papel[chave_papel].quantidade += 1
+        self._q.por_papel[chave_papel].valor += valor
+        self._q.quantidade_total += 1
+        self._q.valor_total += valor
+
+    def adicionar_evento(self) -> None:
+        self._q.eventos += 1
+
+    def adicionar_erro_xml(self, arquivo: str, codigo: str, motivo: str) -> None:
+        self._q.erros_xml.append(ErroXmlDetalhe(arquivo=arquivo, codigo=codigo, motivo=motivo))
+
+    def consolidar(self) -> QuebrasResumo:
+        return self._q
+
+
+def gerar_quebras(
+    resultados: Iterable[ResultadoAnalise], documento_alvo: str | None = None
+) -> QuebrasResumo:
+    """Totais por tipo e papel de um lote/escopo; ERRO_XML e eventos ficam à parte."""
+    from sefaz.adn import calcular_papel_visao  # import tardio: evita ciclo de pacotes
+
+    acc = AcumuladorQuebras()
+    for res in resultados:
+        doc = res.documento
+        if res.erro_fatal is not None or doc is None:
+            codigo = res.alertas[0].codigo if res.alertas else "XML_INVALIDO"
+            acc.adicionar_erro_xml(res.arquivo_origem, codigo, res.erro_fatal or "XML inválido")
+            continue
+        if doc.tipo == "EVENTO":
+            acc.adicionar_evento()
+            continue
+        papel = res.papel or calcular_papel_visao(
+            documento_alvo,
+            doc.emitente.documento,
+            doc.destinatario.documento if doc.destinatario else "",
+        )
+        acc.adicionar_nota(
+            doc.tipo,
+            papel,
+            doc.totais.valor_total_nota,
+            doc.situacao == "CANCELADA",
+            doc.chave_acesso,
+        )
+    return acc.consolidar()

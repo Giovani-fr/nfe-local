@@ -27,7 +27,7 @@ from models.normalizadores import (
     para_data_hora,
     para_decimal,
 )
-from reports.resumo import ResumoLote, gerar_resumo_lote
+from reports.resumo import GRUPO_TIPO, ResumoLote, gerar_resumo_lote
 from sefaz.adn import EstadoCursorADN, calcular_papel_visao
 from sefaz.controle_nsu import EstadoCursorNSU, executar_loop_nsu
 from sefaz.descompactador import (
@@ -873,7 +873,8 @@ class RepositorioDistDFeSQLite:
         pap_visao = pap_bruto if pap_bruto in ("EMITIDA", "RECEBIDA", "INTERMEDIARIA") else None
         if pap_bruto and pap_param is None and pap_visao is None:
             return []
-        tip_param = tipo.strip().upper() if tipo and tipo.strip() else None
+        tip_grupo = tipo.strip().upper() if tipo and tipo.strip() else None
+        tip_param = None  # filtro por tipo é feito em Python (NFE inclui o resumo resNFe)
 
         with self._conectar() as conn:
             rows = conn.execute(
@@ -938,6 +939,8 @@ class RepositorioDistDFeSQLite:
             )
         if pap_visao:
             notas = [n for n in notas if n.papel_visao == pap_visao]
+        if tip_grupo:
+            notas = [n for n in notas if GRUPO_TIPO.get(n.tipo_documento) == tip_grupo]
         return notas
 
     def registrar_log_sync(

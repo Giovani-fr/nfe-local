@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api import __version__
 from models.fiscal import ResultadoAnalise
-from models.normalizadores import DECIMAL_ZERO, limpar_chave_acesso
+from models.normalizadores import limpar_chave_acesso
 from parsers.detector import extrair_xmls_de_zip, processar_arquivo_xml
 from parsers.xml_seguro import ErroParseXML
 from reports.assistente_lote import (
@@ -34,7 +34,14 @@ from reports.assistente_lote import (
 )
 from reports.danfe_svg import montar_contexto_danfe, montar_contexto_danfse
 from reports.exportacao import exportar_itens_csv, exportar_lote_xlsx, exportar_notas_csv
-from reports.resumo import ResumoLote, gerar_resumo_lote
+from reports.resumo import (
+    GRUPO_TIPO,
+    AcumuladorQuebras,
+    QuebrasResumo,
+    ResumoLote,
+    gerar_quebras,
+    gerar_resumo_lote,
+)
 from sefaz.adn import (
     ClienteADN,
     ErroBloqueioADN,
@@ -131,6 +138,7 @@ class RespostaLote(BaseModel):
     criado_em: datetime
     resumo: ResumoLote
     resultados: list[ResultadoAnalise]
+    quebras: QuebrasResumo | None = None
 
 
 class StatusLLMResponse(BaseModel):
@@ -209,8 +217,10 @@ class ListaNotasRecebidasResponse(BaseModel):
     """Payload de listagem filtrável de notas recebidas via `NFeDistribuicaoDFe`."""
 
     total: int
-    valor_total_filtrado: Decimal
+    valor_total_filtrado: Decimal  # sem canceladas
     notas: list[RegistroNotaRecebida] = Field(default_factory=list)
+    quebras: QuebrasResumo = Field(default_factory=QuebrasResumo)
+    quebras_todos_tipos: QuebrasResumo = Field(default_factory=QuebrasResumo)
 
 
 class ListaHistoricoLotesResponse(BaseModel):
@@ -470,6 +480,11 @@ def _gerar_nome_rotulo_upload(nomes_enviados: list[str], total_resultados: int) 
     return f"{len(nomes_limpos)} arquivos ({amostra})"
 
 
+def _quebras_do_lote(lote: LoteArmazenado) -> QuebrasResumo:
+    """Totais por tipo e papel do escopo inteiro (não do subconjunto filtrado)."""
+    return gerar_quebras(lote.resultados, _documento_consulta(obter_repositorio_recebidas()))
+
+
 def _resolver_lote_ou_acervo(lote_id: str) -> LoteArmazenado:
     """Resolve `acervo` dinamicamente no SQLite (lazy load) ou `lote_id` em RAM/SQLite."""
     ident = lote_id.strip()
@@ -670,6 +685,7 @@ async def criar_lote(
         criado_em=lote.criado_em,
         resumo=lote.resumo,
         resultados=lote.resultados,
+        quebras=_quebras_do_lote(lote),
     )
 
 
@@ -705,6 +721,7 @@ def criar_lote_demo() -> RespostaLote:
         criado_em=lote.criado_em,
         resumo=lote.resumo,
         resultados=lote.resultados,
+        quebras=_quebras_do_lote(lote),
     )
 
 
@@ -793,6 +810,7 @@ def obter_lote(
         criado_em=lote.criado_em,
         resumo=lote.resumo,
         resultados=resultados_filtrados,
+        quebras=_quebras_do_lote(lote),
     )
 
 
@@ -1312,14 +1330,30 @@ def listar_recebidas(
         situacao=situacao,
         origem=origem,
         papel=papel,
-        tipo=tipo,
+        tipo=None,
         documento_alvo=_documento_consulta(repo),
     )
-    soma_valores = sum((n.valor_total for n in notas), DECIMAL_ZERO)
+    grupo = (tipo or "").strip().upper()
+
+    def _quebras_de(lista: list[RegistroNotaRecebida]) -> QuebrasResumo:
+        acc = AcumuladorQuebras()
+        for n in lista:
+            acc.adicionar_nota(
+                n.tipo_documento, n.papel_visao, n.valor_total, n.situacao == "CANCELADA"
+            )
+        return acc.consolidar()
+
+    # Os botões/cartões por tipo mostram o que cada tipo daria com os DEMAIS filtros aplicados.
+    quebras_todos = _quebras_de(notas)
+    if grupo:
+        notas = [n for n in notas if GRUPO_TIPO.get(n.tipo_documento) == grupo]
+    quebras = _quebras_de(notas)
     return ListaNotasRecebidasResponse(
         total=len(notas),
-        valor_total_filtrado=soma_valores,
+        valor_total_filtrado=quebras.valor_total,
         notas=notas,
+        quebras=quebras,
+        quebras_todos_tipos=quebras_todos,
     )
 
 
