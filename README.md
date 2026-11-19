@@ -157,6 +157,12 @@ fe_recebidas.db` (ou `NFE_DB_PATH`) | **Sem criptografia.** Contém as notas rec
 - **Resumo (`resNFe`) vs. Nota Completa (`procNFe`) e Eventos (`110111`/`110112`):**
   - Notas entregues inicialmente como `<resNFe>` recebem o badge **`⚠️ Exige Manifestação (210210)`** indicando que é necessário registrar a *Manifestação do Destinatário* (ex.: Ciência da Operação) para que a SEFAZ libere o `<procNFe>` completo.
   - Quando o `<procNFe>` chega em um NSU posterior, o registro no SQLite sofre **upgrade automático** para `NFE_COMPLETA` (com trava anti-downgrade caso um resumo antigo seja reprocessado). Eventos de cancelamento (`110111` / `110112`) atualizam automaticamente a situação da nota para `CANCELADA`.
+- **Tempo limite e repetição da consulta (NF-e):** o `NFeDistribuicaoDFe` costuma responder devagar. Em uso real, a primeira consulta em produção falhou com *Read timed out* depois de 30 s, com conexão e certificado funcionando.
+  - **Tempo limite:** padrão de **90 s** por chamada, de 1 a 180 s, por `NFE_SEFAZ_TIMEOUT` ou `--timeout` (`sincronizar-sefaz`).
+  - **Repetição só em falha de CONEXÃO** (tempo esgotado de leitura ou de conexão, reset, falha de nome, falha de TLS): padrão de **3 tentativas** com espera crescente de **5 s, 15 s e 30 s**, por `NFE_SEFAZ_TENTATIVAS` ou `--tentativas` (1 a 5).
+  - **Nunca repete** resposta SOAP válida (`138`, `137`, `656` ou qualquer outro `cStat`), `SOAP Fault`, HTTP de erro nem certificado inválido ou vencido. A trava de 1 hora do `656` e o encerramento em `ultNSU == maxNSU` não mudam.
+  - **O cursor só avança por página recebida com sucesso.** Se uma página esgotar as tentativas, a execução encerra com erro, **sem mexer no cursor nem criar trava**, mantendo as notas já gravadas; a próxima execução continua do mesmo ponto.
+  - **Mensagem:** "A SEFAZ demorou demais para responder (tentamos N vezes). O serviço de NF-e costuma ficar lento; tente de novo em alguns minutos, de preferência fora do horário comercial." O `sync_log` guarda o total de tentativas e, por falha, só a página, a tentativa, a etapa e a classe do erro (nunca URL, CNPJ, caminho do certificado, senha nem XML). Na interface, enquanto a busca roda aparece "Aguardando a SEFAZ (pode levar até alguns minutos)" e os botões de busca ficam desativados.
 - **Janela de Retenção de ~90 Dias da SEFAZ:**
   - O WebService `NFeDistribuicaoDFe` disponibiliza documentos emitidos nos últimos ~90 dias. Recomenda-se sincronizar periodicamente e manter backup do arquivo `data/nfe_recebidas.db`.
 
@@ -219,6 +225,8 @@ fe-local` |
 | `NFE_UF_AUTOR` | Código IBGE da UF do autor (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF consultado no `NFeDistribuicaoDFe`. **Se vazio, usa o CNPJ do certificado A1.** Útil quando o certificado é de um contador/matriz e a consulta é de outra empresa. Um documento passado explicitamente à chamada tem prioridade sobre esta variável. | CNPJ do certificado |
 | `NFE_ADN_URL_BASE` | URL base do ADN Nacional (NFS-e), com `https://`. Sobrepõe o padrão do ambiente; a opção `--url-base` do `nfe-local sincronizar-adn` vale mais. Use `--diagnostico` para testar a conexão sem gravar nada. | padrão do ambiente (ver `docs/adn.md`) |
+| `NFE_SEFAZ_TIMEOUT` | Tempo limite de cada chamada ao `NFeDistribuicaoDFe`, em segundos (1 a 180). A opção `--timeout` vale mais. | `90` |
+| `NFE_SEFAZ_TENTATIVAS` | Tentativas por consulta ao `NFeDistribuicaoDFe` quando a **conexão** falha (1 a 5), com espera de 5 s, 15 s e 30 s. Não repete resposta SOAP (`138`, `137`, `656`...) nem certificado inválido. A opção `--tentativas` vale mais. | `3` |
 | `NFE_ADN_TENTATIVAS` | Tentativas por consulta ao ADN quando a **conexão** falha (1 a 5), com espera crescente de 2 s, 5 s e 10 s. Não repete resposta HTTP válida, `429` nem certificado inválido. A opção `--tentativas` vale mais. | `3` |
 | `NFE_DB_PATH` | Arquivo SQLite local (lotes, notas recebidas, cursor NSU). | `data/nfe_recebidas.db` |
 | `LLM_API_KEY` | Liga o Assistente Analítico. **Vazia = assistente desligado** e nada sai do computador. | — |

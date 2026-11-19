@@ -155,6 +155,12 @@ Candidly, this is what exists on disk:
 - **Summary (`resNFe`) vs. Full Invoice (`procNFe`) & Cancellation Events (`110111`/`110112`):**
   - Invoices initially delivered as `<resNFe>` summaries are flagged with the **`⚠️ Exige Manifestação (210210)`** badge, indicating that *Recipient Manifestation* (e.g., Operation Awareness `210210`) is required to unlock the full `<procNFe>` XML.
   - When the full `<procNFe>` arrives in a later NSU, the SQLite record is **automatically upgraded** to `NFE_COMPLETA` (with anti-downgrade protection if an older summary is reprocessed). Cancellation events (`110111` / `110112`) automatically mark the corresponding invoice as `CANCELADA`.
+- **Timeout and retries (NF-e):** `NFeDistribuicaoDFe` is often slow to answer. In real use, the first production query failed with *Read timed out* after 30 s, with the connection and certificate working.
+  - **Timeout:** default **90 s** per call, from 1 to 180 s, via `NFE_SEFAZ_TIMEOUT` or `--timeout` (`sincronizar-sefaz`).
+  - **Retries only on CONNECTION failures** (read or connect timeout, reset, name failure, TLS failure): default **3 attempts** with growing waits of **5 s, 15 s and 30 s**, via `NFE_SEFAZ_TENTATIVAS` or `--tentativas` (1 to 5).
+  - **Never retries** a valid SOAP response (`138`, `137`, `656` or any other `cStat`), a `SOAP Fault`, an HTTP error or an invalid/expired certificate. The `656` 1-hour lock and stopping at `ultNSU == maxNSU` are unchanged.
+  - **The cursor only advances on a page received successfully.** If a page exhausts its attempts, the run stops with an error, **without touching the cursor or creating a lock**, keeping the invoices already saved; the next run continues from the same point.
+  - **Message:** "A SEFAZ demorou demais para responder (tentamos N vezes)..." (the SEFAZ took too long to answer; the NF-e service is often slow; try again in a few minutes, preferably outside business hours). `sync_log` stores the total attempts and, per failure, only the page, attempt, stage and error class (never URL, CNPJ, certificate path, password or XML). In the UI, while the search runs it shows "Aguardando a SEFAZ (pode levar até alguns minutos)" and the search buttons are disabled.
 - **SEFAZ ~90-Day Retention Window:**
   - The national `NFeDistribuicaoDFe` WebService only retains documents for roughly 90 days. Periodic synchronization and regular backups of `data/nfe_recebidas.db` are recommended.
 
@@ -216,6 +222,8 @@ All are optional. **The program does not read the `.env` file by itself**: `.env
 | `NFE_UF_AUTOR` | IBGE code of the author's state (`cUFAutor`). | `35` |
 | `NFE_CNPJ_CONSULTA` | CNPJ/CPF queried in `NFeDistribuicaoDFe`. **If empty, the A1 certificate's CNPJ is used.** Useful when the certificate belongs to an accountant/head office and the query is for another company. A document passed explicitly to the call takes priority over this variable. | Certificate CNPJ |
 | `NFE_ADN_URL_BASE` | Base URL of the national NFS-e ADN, with `https://`. Overrides the environment default; `--url-base` on `nfe-local sincronizar-adn` wins. Use `--diagnostico` to test the connection without writing anything. | environment default (see `docs/adn.md`) |
+| `NFE_SEFAZ_TIMEOUT` | Timeout of each `NFeDistribuicaoDFe` call, in seconds (1 to 180). `--timeout` wins. | `90` |
+| `NFE_SEFAZ_TENTATIVAS` | Attempts per `NFeDistribuicaoDFe` query when the **connection** fails (1 to 5), with waits of 5 s, 15 s and 30 s. SOAP responses (`138`, `137`, `656`...) and invalid certificates are not retried. `--tentativas` wins. | `3` |
 | `NFE_ADN_TENTATIVAS` | Attempts per ADN query when the **connection** fails (1 to 5), with growing waits of 2 s, 5 s and 10 s. Valid HTTP responses, `429` and invalid certificates are not retried. `--tentativas` wins. | `3` |
 | `NFE_DB_PATH` | Local SQLite file (batches, inbound invoices, NSU cursor). | `data/nfe_recebidas.db` |
 | `LLM_API_KEY` | Enables the Analytical Assistant. **Empty = assistant off** and nothing leaves the computer. | — |
